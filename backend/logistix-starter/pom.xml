@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.logistix</groupId>
+        <artifactId>logistix-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>logistix-starter</artifactId>
+    <name>LogistiX Starter</name>
+    <description>Spring Boot AutoConfiguration and starter integration module</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.logistix</groupId>
+            <artifactId>logistix-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.logistix</groupId>
+            <artifactId>logistix-decision-engine</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.logistix</groupId>
+            <artifactId>logistix-ai</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.logistix</groupId>
+            <artifactId>logistix-rag</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Starter -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+
+        <!-- Configuration Processor -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

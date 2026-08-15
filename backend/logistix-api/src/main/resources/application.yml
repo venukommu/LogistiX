@@ -1,0 +1,56 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: logistix-api
+  threads:
+    virtual:
+      enabled: true
+
+# SpringDoc OpenAPI Documentation
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: method
+    display-request-duration: true
+
+# Actuator Endpoints & Health Telemetry
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when_authorized
+
+# LogistiX Platform Defaults
+logistix:
+  enabled: true
+  ai:
+    provider: spring-ai
+    default-model: gpt-4o
+    default-temperature: 0.2
+    max-tokens: 2048
+  rag:
+    enabled: true
+    default-top-k: 5
+    min-similarity-threshold: 0.75
+    embedding-dimensions: 1536
+  decision-engine:
+    explainability-enabled: true
+    minimum-acceptance-score: 0.60
+    strict-rule-evaluation: true
+
+# Logging Configurations
+logging:
+  level:
+    root: INFO
+    org.logistix: DEBUG
+    org.springframework.ai: INFO
