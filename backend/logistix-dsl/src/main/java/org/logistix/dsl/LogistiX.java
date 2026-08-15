@@ -88,6 +88,20 @@ public final class LogistiX {
     }
 
     /**
+     * Start building a fluent DecisionGraph for the given model ID.
+     */
+    public static org.logistix.model.graph.DecisionGraphBuilder graph(String modelId) {
+        return org.logistix.model.graph.DecisionGraph.builder(modelId);
+    }
+
+    /**
+     * Obtain the default visualizer for rendering DecisionModels to Mermaid diagrams.
+     */
+    public static org.logistix.model.visualizer.DecisionVisualizer visualizer() {
+        return org.logistix.model.visualizer.DecisionVisualizer.defaultVisualizer();
+    }
+
+    /**
      * Obtain a fluent configuration builder for LogistiX.
      */
     public static ConfigurationBuilder configure() {

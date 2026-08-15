@@ -2,7 +2,7 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
-     <modelVersion>4.0.0</modelVersion>
+    <modelVersion>4.0.0</modelVersion>
 
     <parent>
         <groupId>org.logistix</groupId>
@@ -10,19 +10,14 @@
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>logistix-engine</artifactId>
-    <name>LogistiX Engine</name>
-    <description>Core runtime execution engine, immutable pipeline orchestration, lifecycle hooks, and plugin architecture</description>
+    <artifactId>logistix-model</artifactId>
+    <name>LogistiX Model</name>
+    <description>Core Decision Modeling, Decision Graphs, Execution Strategies, State, Memory, and Visualization</description>
 
     <dependencies>
         <dependency>
             <groupId>org.logistix</groupId>
             <artifactId>logistix-domain</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.logistix</groupId>
-            <artifactId>logistix-model</artifactId>
         </dependency>
 
         <dependency>

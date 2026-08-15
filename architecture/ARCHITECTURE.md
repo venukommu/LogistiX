@@ -1,139 +1,167 @@
-# LogistiX Architecture Specification: Framework & Developer Experience
+# LogistiX Architecture Specification: Decision Intelligence Platform
 
 ## 1. Executive Summary & Philosophy
 
-**LogistiX** is an open-source, domain-agnostic framework for **AI-powered operational decision making**. 
+**LogistiX** is an open-source, domain-agnostic **Decision Intelligence Platform**.
 
-Inspired by the elegance of **Spring Boot**, the pipeline flexibility of **LangGraph**, the resiliency of **Temporal**, and the declarative fluent DSLs of **Apache Camel**, LogistiX provides a complete decision runtime and Developer Experience (DX) that hides internal complexity behind intuitive public abstractions.
+Rather than treating operational decisions as rigid sequential scripts, LogistiX decouples **Decision Modeling** (describing *what* needs to be evaluated) from **Execution Strategy** (determining *how*, when, and in what topology computation happens).
+
+Every decision problem—whether Driver Dispatch, Carrier Recommendation, Multi-Stop Route Optimization, Dynamic Pricing, Dock Scheduling, or Multi-Agent Negotiation—is modeled as a **`DecisionModel`** executed through pluggable execution strategies.
 
 ---
 
-## 2. Public API Layer (`logistix-dsl`)
+## 2. Decision Intelligence Architecture (`logistix-model`)
 
 ```mermaid
 flowchart TD
-    subgraph DeveloperCode ["Developer Application"]
-        APP["<b>Application Code</b>"]
+    subgraph Client ["Client Invocation"]
+        REQ["<b>DecisionRequest&lt;T&gt;</b> or <b>LogistiX.decision()</b>"]
     end
 
-    subgraph PublicAPI ["LogistiX Public Facade (logistix-dsl)"]
-        LX["<b>public final class LogistiX</b><br/><i>(Primary Entry Point)</i>"]
-        DSL_DEC["<b>LogistiX.decision('type')</b><br/><i>Fluent Decision DSL</i>"]
-        DSL_PIP["<b>LogistiX.pipeline('type')</b><br/><i>Fluent Pipeline DSL</i>"]
-        DSL_CTX["<b>LogistiX.context('type')</b><br/><i>Fluent Context DSL</i>"]
-        ANN["<b>Annotations</b><br/><i>@DecisionPipeline, @DecisionRule, @DecisionConstraint, @DecisionPlugin</i>"]
+    subgraph ModelLayer ["Decision Model Layer (logistix-model)"]
+        DM["<b>DecisionModel</b><br/><i>(Declarative Topology Description)</i>"]
+        
+        subgraph Topologies ["Supported Model Topologies"]
+            DG["<b>DecisionGraph</b><br/><i>(DAG, Cyclic, Branching)</i>"]
+            DP["<b>ModelPipeline</b><br/><i>(Sequential Pipeline)</i>"]
+            DT["<b>DecisionTable / DecisionTree</b>"]
+        end
+        
+        DM --> DG
+        DM --> DP
+        DM --> DT
     end
 
-    subgraph EngineRuntime ["Framework Runtime (logistix-engine / logistix-domain)"]
-        CTX["<b>DecisionContext</b><br/>(Extensible FactBag)"]
-        PIPE["<b>DecisionPipeline</b><br/>(Immutable Step Sequence)"]
-        EXEC["<b>DecisionExecutor</b><br/>(Runtime Orchestrator)"]
-        REG["<b>DecisionRegistry</b>"]
-        HOOKS["<b>HookRegistry</b>"]
-        METRICS["<b>MetricsCollector</b>"]
-        TRACE["<b>DecisionTrace</b>"]
+    subgraph StrategyLayer ["Execution Strategies (ExecutionStrategy)"]
+        S_SEQ["<b>SequentialExecutionStrategy</b>"]
+        S_PAR["<b>ParallelExecutionStrategy</b>"]
+        S_GRA["<b>GraphExecutionStrategy</b><br/><i>(Topological DAG Sorting)</i>"]
+        S_CON["<b>ConditionalExecutionStrategy</b><br/><i>(Dynamic Edge Branching)</i>"]
+        S_AGE["<b>AgentExecutionStrategy</b><br/><i>(ReAct & Multi-Agent Loops)</i>"]
+    end
+
+    subgraph Planning ["Execution Planning"]
+        PLAN["<b>ExecutionPlan</b><br/>• ExecutionStages<br/>• ExecutionUnits<br/>• ExecutionCursor"]
+    end
+
+    subgraph Runtime ["Execution Engine & Telemetry"]
+        STATE["<b>DecisionState</b><br/><i>(Facts, NodeOutputs, Errors, Variables)</i>"]
+        MEM["<b>DecisionMemory</b><br/><i>(Remember, Retrieve, Search)</i>"]
+        VIS["<b>DecisionVisualizer</b><br/><i>(Mermaid, JSON, PlantUML, GraphViz)</i>"]
+        EXEC["<b>DecisionExecutor</b>"]
         RES["<b>DecisionResult&lt;T&gt;</b>"]
     end
 
-    subgraph SpringBoot ["Auto-Discovery (logistix-spring-boot-starter)"]
-        AUTO["<b>LogistiXAutoConfiguration</b>"]
-        SCAN["<b>Pipeline & Plugin Scanner</b>"]
-    end
-
-    APP -->|Invokes| LX
-    LX --> DSL_DEC
-    LX --> DSL_PIP
-    LX --> DSL_CTX
-    APP -->|Annotated with| ANN
-    DSL_DEC -->|Executes via| EXEC
-    DSL_PIP -->|Registers into| REG
-    DSL_CTX -->|Creates| CTX
-    EXEC --> PIPE
-    EXEC --> HOOKS
-    EXEC --> METRICS
-    EXEC --> TRACE
+    REQ --> DM
+    DM --> StrategyLayer
+    StrategyLayer --> PLAN
+    PLAN --> EXEC
+    EXEC --> STATE
+    EXEC --> MEM
     EXEC --> RES
-    AUTO --> SCAN
-    SCAN -->|Populates| REG
+    DM --> VIS
 ```
 
 ---
 
-## 3. The Fluent Decision DSL
+## 3. Pluggable Decision Node Types (`org.logistix.model.node`)
 
-Developers can execute complex operational decisions with zero ceremony:
+Each node in a `DecisionModel` represents an atomic, isolated unit of work:
+
+| Node Type | Class Contract | Responsibility |
+| :--- | :--- | :--- |
+| **Constraint** | `ConstraintNode` | Evaluates hard feasibility guardrails and soft boundaries. |
+| **Rule** | `RuleNode` | Evaluates deterministic business compliance with priority. |
+| **AI / LLM** | `AINode` | Model inference, contextual reasoning, and prompt execution. |
+| **Memory** | `MemoryNode` | Short-term working context and long-term historical recall. |
+| **Scoring** | `ScoringNode` | Computes normalized multi-criteria objective scores. |
+| **Recommendation** | `RecommendationNode` | Synthesizes top-K candidates with explainable rationale. |
+| **Validation** | `ValidationNode` | Verifies fact schema completeness and invariant checks. |
+| **Transformation** | `TransformationNode` | Data shaping, schema mapping, and derived state computation. |
+| **Aggregation** | `AggregationNode` | Merges outputs from multiple concurrent upstream branches. |
+| **Condition** | `ConditionNode` | Evaluates dynamic boolean expressions for branch routing. |
+| **Delay** | `DelayNode` | Execution throttling, retry backoff, and deliberate delays. |
+
+---
+
+## 4. Decision Graph & Fluent Graph DSL
 
 ```java
-// 1. One-Liner / Fluent Decision Execution
-DecisionResult<Driver> result = LogistiX.<Driver>decision("driver-dispatch")
-    .fact("shipment", shipment)
-    .fact("candidateDrivers", drivers)
-    .constraint(new MaxDistanceConstraint(50.0))
-    .rule(new SeniorityPriorityRule())
-    .execute();
-
-// 2. Fluent Pipeline Assembly
-DecisionPipeline pipeline = LogistiX.pipeline("carrier-recommendation")
-    .name("Carrier-Selection-Pipeline")
-    .version("1.2.0")
-    .step(new CapacityConstraintStep())
-    .step(new ServiceLevelAgreementRuleStep())
-    .step(new RouteRiskAiStep())
-    .step(new WeightedScoringStep())
-    .step(new ExplainableRecommendationStep())
+// Construct a DAG DecisionGraph with zero boilerplate
+DecisionGraph graph = LogistiX.graph("carrier-intelligence-graph")
+    .name("Carrier Multi-Branch Evaluation")
+    .addNode(DecisionGraphNode.of("hos-check", "Check Driver HOS", NodeType.CONSTRAINT))
+    .addNode(DecisionGraphNode.of("weather-risk", "Predict Weather Impact", NodeType.AI))
+    .addNode(DecisionGraphNode.of("traffic-delay", "Predict Traffic Congestion", NodeType.AI))
+    .addNode(DecisionGraphNode.of("score-synthesis", "Aggregate & Score", NodeType.SCORING, List.of("weather-risk", "traffic-delay")))
+    .addNode(DecisionGraphNode.of("recommendation", "Final Recommendation", NodeType.RECOMMENDATION, List.of("score-synthesis")))
+    .addEdge("hos-check", "weather-risk")
+    .addEdge("hos-check", "traffic-delay")
+    .addEdge("weather-risk", "score-synthesis")
+    .addEdge("traffic-delay", "score-synthesis")
+    .addEdge("score-synthesis", "recommendation")
     .build();
+
+// Render to Mermaid
+String mermaidDiagram = LogistiX.visualizer().toMermaid(graph);
 ```
 
 ---
 
-## 4. Declarative Annotations (`org.logistix.dsl.annotation`)
+## 5. Declarative YAML DSL Schema
 
-LogistiX provides a comprehensive set of annotations for declarative component declaration and auto-discovery:
+Decision topologies can be authored directly in YAML for zero-code deployments:
 
-| Annotation | Target | Purpose |
-| :--- | :--- | :--- |
-| **`@DecisionPipeline`** | Class / Method | Declares a named pipeline handling a specific decision type. |
-| **`@DecisionRule`** | Class / Method | Defines a deterministic business rule with priority ordering. |
-| **`@DecisionConstraint`** | Class / Method | Defines a feasibility guardrail (`HARD` or `SOFT`). |
-| **`@DecisionPlugin`** | Class | Marks a third-party extension contributing steps and hooks. |
-| **`@DecisionProvider`** | Class | Identifies an external SPI provider (AI, Knowledge, Rules). |
-| **`@DecisionComponent`** | Class / Method | General marker for LogistiX framework beans. |
-
----
-
-## 5. Spring Boot Starter & Auto-Discovery (`logistix-spring-boot-starter`)
-
-When added to a Spring Boot application, `logistix-spring-boot-starter`:
-1. Activates **`LogistiXAutoConfiguration`**.
-2. Scans for `@DecisionPipeline`, `@DecisionRule`, `@DecisionConstraint`, and `@DecisionPlugin` beans.
-3. Automatically populates `DecisionRegistry` and `PluginRegistry`.
-4. Binds external application properties via `@ConfigurationProperties(prefix = "logistix")`.
-5. Exposes the configured container via `LogistiX.getContext()`.
-
----
-
-## 6. Service Provider Interface (SPI)
-
-Third-party developers can extend any stage of LogistiX without modifying core code:
-- **`DecisionPlugin`**: Contributes custom steps, lifecycle hooks, and configuration.
-- **`AIProvider`**: Pluggable LLM reasoning backends (Spring AI, OpenAI, Anthropic, Ollama, local fine-tuned models).
-- **`KnowledgeProvider`**: Vector search and RAG knowledge retrievers (pgvector, Qdrant, Milvus).
-- **`RuleProvider`**: External rule engines (Drools, JSON rules, custom script evaluators).
-- **`ConstraintProvider`**: Hard and soft mathematical optimization constraint sets.
-
----
-
-## 7. Command-Line Interface (CLI) Architecture
-
-The framework defines standard contracts for future CLI toolchains (`org.logistix.dsl.cli`):
-- `logistix new decision <name>`: Scaffolds a new decision pipeline with sample constraints, rules, and tests.
-- `logistix doctor`: Validates Java 21 runtime, database connections, and registered pipelines.
-- `logistix validate`: Statically verifies rule precedence, constraint completeness, and pipeline integrity.
-- `logistix benchmark`: Executes high-throughput scenario simulations and latency benchmarks.
+```yaml
+decision:
+  name: dynamic-driver-dispatch
+  strategy: graph
+  version: 1.0.0
+  description: Multi-branch AI dispatch under real-time constraints
+  nodes:
+    - id: hos-guardrail
+      type: CONSTRAINT
+    - id: weather-inference
+      type: AI
+      properties:
+        model: gpt-4o
+        temperature: 0.2
+    - id: congestion-model
+      type: AI
+      properties:
+        model: gpt-4o
+    - id: multi-criteria-scorer
+      type: SCORING
+      dependencies: [weather-inference, congestion-model]
+    - id: dispatch-recommendation
+      type: RECOMMENDATION
+      dependencies: [multi-criteria-scorer]
+  edges:
+    - source: hos-guardrail
+      target: weather-inference
+    - source: hos-guardrail
+      target: congestion-model
+    - source: weather-inference
+      target: multi-criteria-scorer
+    - source: congestion-model
+      target: multi-criteria-scorer
+    - source: multi-criteria-scorer
+      target: dispatch-recommendation
+```
 
 ---
 
-## 8. Multi-Module Hierarchy
+## 6. Execution Strategies (`org.logistix.model.strategy`)
+
+1. **`SequentialExecutionStrategy`**: Compiles linear pipelines executing in strict serial order.
+2. **`ParallelExecutionStrategy`**: Automatically identifies independent nodes and stages them for concurrent execution.
+3. **`GraphExecutionStrategy`**: Evaluates directed acyclic graphs (DAGs) using topological sorting.
+4. **`ConditionalExecutionStrategy`**: Dynamically evaluates edge predicate conditions at runtime based on the `DecisionState`.
+5. **`AgentExecutionStrategy`**: Manages autonomous ReAct / multi-agent reasoning and reflection loops.
+
+---
+
+## 7. Multi-Module Hierarchy
 
 ```mermaid
 graph TD
@@ -142,7 +170,11 @@ graph TD
     examples[logistix-examples<br/><i>Code Samples & Guides</i>] --> dsl
     
     dsl --> engine[<b>logistix-engine</b><br/><i>Runtime Execution Engine</i>]
-    engine --> domain[<b>logistix-domain</b><br/><i>Pure Java 21 Framework Core</i>]
+    dsl --> model[<b>logistix-model</b><br/><i>Decision Modeling & Graphs</i>]
+    engine --> model
+    
+    engine --> domain[<b>logistix-domain</b><br/><i>Pure Framework Domain Core</i>]
+    model --> domain
     
     starter --> rag[logistix-rag<br/><i>RAG & Knowledge Retrieval</i>]
     starter --> ai[logistix-ai<br/><i>Model Providers & Prompts</i>]

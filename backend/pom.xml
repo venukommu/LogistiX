@@ -23,6 +23,7 @@
     <modules>
         <module>logistix-common</module>
         <module>logistix-domain</module>
+        <module>logistix-model</module>
         <module>logistix-decision-engine</module>
         <module>logistix-engine</module>
         <module>logistix-dsl</module>
@@ -102,6 +103,11 @@
             <dependency>
                 <groupId>org.logistix</groupId>
                 <artifactId>logistix-domain</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.logistix</groupId>
+                <artifactId>logistix-model</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
