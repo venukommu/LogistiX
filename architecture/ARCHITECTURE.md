@@ -1,146 +1,158 @@
-# LogistiX Architecture Specification: Framework Execution Engine Runtime
+# LogistiX Architecture Specification: Framework & Developer Experience
 
 ## 1. Executive Summary & Philosophy
 
 **LogistiX** is an open-source, domain-agnostic framework for **AI-powered operational decision making**. 
 
-Rather than being a static logistics application, LogistiX provides a resilient, extensible execution runtime inspired by leading framework architectures (Spring Framework, LangGraph, Temporal, Apache Camel).
-
-Every operational decision in LogistiX—from driver dispatch to dynamic pricing, carrier recommendation, route optimization, dock scheduling, and fraud detection—executes via the **LogistiX Execution Engine (`logistix-engine`)**.
+Inspired by the elegance of **Spring Boot**, the pipeline flexibility of **LangGraph**, the resiliency of **Temporal**, and the declarative fluent DSLs of **Apache Camel**, LogistiX provides a complete decision runtime and Developer Experience (DX) that hides internal complexity behind intuitive public abstractions.
 
 ---
 
-## 2. Core Framework Runtime Components
-
-### A. `LogistiXContext` (The Global Container)
-The runtime container analogous to Spring's `ApplicationContext`. It centralizes:
-- **`DecisionRegistry`**: Dynamic registration and lookup of decision pipelines.
-- **`PluginRegistry`**: Discovery and lifecycle management for third-party extensions.
-- **`HookRegistry`**: Interceptor lifecycle hooks.
-- **`MetricsCollector`**: Aggregates timing, rule evaluations, constraint violations, and AI token telemetry.
-- **`DomainEventPublisher`**: Broadcasts lifecycle events asynchronously.
-- **`DecisionExecutor`**: The main pipeline execution engine.
-
-### B. `DecisionPipeline` & `DecisionStep`
-- **`DecisionPipeline`**: Immutable sequential execution abstraction created via `DecisionPipelineBuilder`.
-- **`DecisionStep`**: Pure transformation contract $( \text{DecisionContext} \to \text{StepResult} )$. Pipelines are agnostic to domain semantics.
-- Specialized step contracts: `ConstraintStep`, `RuleStep`, `AIStep`, `ScoringStep`, `RecommendationStep`.
-
-### C. `DecisionExecutor`
-The core runtime coordinator:
-1. Resolves pipelines via `DecisionRegistry`.
-2. Triggers `BeforeDecision` / `BeforeStep` / `AfterStep` / `AfterDecision` lifecycle hooks.
-3. Records `StepMetrics` and builds replayable `DecisionTrace` entries.
-4. Handles short-circuiting or failure recovery according to `EngineConfiguration`.
-5. Emits `DecisionCompletedEvent` and returns the final `DecisionResult`.
-
----
-
-## 3. Decision Engine Runtime Flow
+## 2. Public API Layer (`logistix-dsl`)
 
 ```mermaid
 flowchart TD
-    subgraph Client ["1. Invocation"]
-        REQ["<b>DecisionRequest&lt;T&gt;</b>"]
+    subgraph DeveloperCode ["Developer Application"]
+        APP["<b>Application Code</b>"]
     end
 
-    subgraph Container ["2. LogistiXContext Runtime Container"]
-        REG["<b>DecisionRegistry</b><br/><i>Locates Pipeline by DecisionType</i>"]
-        HOOKS["<b>HookRegistry</b><br/><i>Lifecycle Interceptors</i>"]
-        METRICS["<b>MetricsCollector</b><br/><i>Telemetry & Latency</i>"]
-        TRACE["<b>TraceRecorder</b><br/><i>Replayable Audit Trail</i>"]
+    subgraph PublicAPI ["LogistiX Public Facade (logistix-dsl)"]
+        LX["<b>public final class LogistiX</b><br/><i>(Primary Entry Point)</i>"]
+        DSL_DEC["<b>LogistiX.decision('type')</b><br/><i>Fluent Decision DSL</i>"]
+        DSL_PIP["<b>LogistiX.pipeline('type')</b><br/><i>Fluent Pipeline DSL</i>"]
+        DSL_CTX["<b>LogistiX.context('type')</b><br/><i>Fluent Context DSL</i>"]
+        ANN["<b>Annotations</b><br/><i>@DecisionPipeline, @DecisionRule, @DecisionConstraint, @DecisionPlugin</i>"]
     end
 
-    subgraph Pipeline ["3. DecisionPipeline Execution Flow (DecisionExecutor)"]
-        direction TB
-        H_BEFORE["<i>Hook: BeforeDecision</i>"]
-        
-        STEP1["<b>ConstraintStep</b><br/><i>Feasibility Pruning & Hard Guardrails</i>"]
-        STEP2["<b>RuleStep</b><br/><i>Deterministic Business Policy Compliance</i>"]
-        STEP3["<b>AIStep</b><br/><i>Semantic Reasoning & RAG Grounding</i>"]
-        STEP4["<b>ScoringStep</b><br/><i>Multi-Criteria Weighted Evaluation</i>"]
-        STEP5["<b>RecommendationStep</b><br/><i>Candidate Ranking & Explanation</i>"]
-        
-        H_AFTER["<i>Hook: AfterDecision</i>"]
-        
-        H_BEFORE --> STEP1
-        STEP1 --> STEP2
-        STEP2 --> STEP3
-        STEP3 --> STEP4
-        STEP4 --> STEP5
-        STEP5 --> H_AFTER
+    subgraph EngineRuntime ["Framework Runtime (logistix-engine / logistix-domain)"]
+        CTX["<b>DecisionContext</b><br/>(Extensible FactBag)"]
+        PIPE["<b>DecisionPipeline</b><br/>(Immutable Step Sequence)"]
+        EXEC["<b>DecisionExecutor</b><br/>(Runtime Orchestrator)"]
+        REG["<b>DecisionRegistry</b>"]
+        HOOKS["<b>HookRegistry</b>"]
+        METRICS["<b>MetricsCollector</b>"]
+        TRACE["<b>DecisionTrace</b>"]
+        RES["<b>DecisionResult&lt;T&gt;</b>"]
     end
 
-    subgraph Output ["4. Auditable Output"]
-        RES["<b>DecisionResult&lt;T&gt;</b><br/>• Top Recommendation & Rank<br/>• Normalized Score & Confidence<br/>• Explanation & Factor Breakdown<br/>• DecisionMetrics & Replayable DecisionTrace<br/>• Audit Logs & Metadata"]
+    subgraph SpringBoot ["Auto-Discovery (logistix-spring-boot-starter)"]
+        AUTO["<b>LogistiXAutoConfiguration</b>"]
+        SCAN["<b>Pipeline & Plugin Scanner</b>"]
     end
 
-    REQ --> REG
-    REG --> Pipeline
-    Pipeline --> METRICS
-    Pipeline --> TRACE
-    Pipeline --> RES
+    APP -->|Invokes| LX
+    LX --> DSL_DEC
+    LX --> DSL_PIP
+    LX --> DSL_CTX
+    APP -->|Annotated with| ANN
+    DSL_DEC -->|Executes via| EXEC
+    DSL_PIP -->|Registers into| REG
+    DSL_CTX -->|Creates| CTX
+    EXEC --> PIPE
+    EXEC --> HOOKS
+    EXEC --> METRICS
+    EXEC --> TRACE
+    EXEC --> RES
+    AUTO --> SCAN
+    SCAN -->|Populates| REG
 ```
 
 ---
 
-## 4. Plugin Architecture (`org.logistix.engine.plugins`)
+## 3. The Fluent Decision DSL
 
-LogistiX features a non-invasive plugin model allowing third-party extensions to dynamically contribute:
-- Custom **`DecisionStep`** implementations.
-- Custom **`DecisionHook`** lifecycle interceptors.
-- External rules, constraints, and scoring providers.
+Developers can execute complex operational decisions with zero ceremony:
 
-```mermaid
-graph LR
-    P[<b>DecisionPlugin</b>] -->|Contributes| S[Custom DecisionSteps]
-    P -->|Contributes| H[Lifecycle DecisionHooks]
-    P -->|Initializes via| PC[PluginContext]
-    PR[<b>PluginRegistry</b>] -->|Manages| P
-    LC[<b>LogistiXContext</b>] -->|Hosts| PR
+```java
+// 1. One-Liner / Fluent Decision Execution
+DecisionResult<Driver> result = LogistiX.<Driver>decision("driver-dispatch")
+    .fact("shipment", shipment)
+    .fact("candidateDrivers", drivers)
+    .constraint(new MaxDistanceConstraint(50.0))
+    .rule(new SeniorityPriorityRule())
+    .execute();
+
+// 2. Fluent Pipeline Assembly
+DecisionPipeline pipeline = LogistiX.pipeline("carrier-recommendation")
+    .name("Carrier-Selection-Pipeline")
+    .version("1.2.0")
+    .step(new CapacityConstraintStep())
+    .step(new ServiceLevelAgreementRuleStep())
+    .step(new RouteRiskAiStep())
+    .step(new WeightedScoringStep())
+    .step(new ExplainableRecommendationStep())
+    .build();
 ```
 
 ---
 
-## 5. Decision Trace & Metrics Telemetry
+## 4. Declarative Annotations (`org.logistix.dsl.annotation`)
 
-### Replayable Trace (`DecisionTrace`)
-Each executed step appends a `DecisionTraceEntry` capturing:
-- Step identifier and human-readable name.
-- Input and output state diffs.
-- Emitted fact keys.
-- Step execution status (`SUCCESS`, `SKIPPED`, `FAILED`, `SHORT_CIRCUIT`).
-- Execution duration and messages.
+LogistiX provides a comprehensive set of annotations for declarative component declaration and auto-discovery:
 
-This enables UI visualizers and simulation tools to **replay the entire decision lifecycle step-by-step**.
-
-### Quantitative Metrics (`DecisionMetrics`)
-- Total execution duration.
-- Per-step duration breakdown.
-- Evaluated vs. passed rule counts.
-- Violated constraint counts.
-- AI tokens consumed and AI model inference latency.
-- Warning and error tallies.
+| Annotation | Target | Purpose |
+| :--- | :--- | :--- |
+| **`@DecisionPipeline`** | Class / Method | Declares a named pipeline handling a specific decision type. |
+| **`@DecisionRule`** | Class / Method | Defines a deterministic business rule with priority ordering. |
+| **`@DecisionConstraint`** | Class / Method | Defines a feasibility guardrail (`HARD` or `SOFT`). |
+| **`@DecisionPlugin`** | Class | Marks a third-party extension contributing steps and hooks. |
+| **`@DecisionProvider`** | Class | Identifies an external SPI provider (AI, Knowledge, Rules). |
+| **`@DecisionComponent`** | Class / Method | General marker for LogistiX framework beans. |
 
 ---
 
-## 6. Multi-Module Layout
+## 5. Spring Boot Starter & Auto-Discovery (`logistix-spring-boot-starter`)
+
+When added to a Spring Boot application, `logistix-spring-boot-starter`:
+1. Activates **`LogistiXAutoConfiguration`**.
+2. Scans for `@DecisionPipeline`, `@DecisionRule`, `@DecisionConstraint`, and `@DecisionPlugin` beans.
+3. Automatically populates `DecisionRegistry` and `PluginRegistry`.
+4. Binds external application properties via `@ConfigurationProperties(prefix = "logistix")`.
+5. Exposes the configured container via `LogistiX.getContext()`.
+
+---
+
+## 6. Service Provider Interface (SPI)
+
+Third-party developers can extend any stage of LogistiX without modifying core code:
+- **`DecisionPlugin`**: Contributes custom steps, lifecycle hooks, and configuration.
+- **`AIProvider`**: Pluggable LLM reasoning backends (Spring AI, OpenAI, Anthropic, Ollama, local fine-tuned models).
+- **`KnowledgeProvider`**: Vector search and RAG knowledge retrievers (pgvector, Qdrant, Milvus).
+- **`RuleProvider`**: External rule engines (Drools, JSON rules, custom script evaluators).
+- **`ConstraintProvider`**: Hard and soft mathematical optimization constraint sets.
+
+---
+
+## 7. Command-Line Interface (CLI) Architecture
+
+The framework defines standard contracts for future CLI toolchains (`org.logistix.dsl.cli`):
+- `logistix new decision <name>`: Scaffolds a new decision pipeline with sample constraints, rules, and tests.
+- `logistix doctor`: Validates Java 21 runtime, database connections, and registered pipelines.
+- `logistix validate`: Statically verifies rule precedence, constraint completeness, and pipeline integrity.
+- `logistix benchmark`: Executes high-throughput scenario simulations and latency benchmarks.
+
+---
+
+## 8. Multi-Module Hierarchy
 
 ```mermaid
 graph TD
-    api[logistix-api<br/><i>REST & OpenAPI Gateway</i>] --> starter[logistix-starter<br/><i>Auto-Configuration & Wiring</i>]
-    starter --> engine[<b>logistix-engine</b><br/><i>Runtime Execution Engine</i>]
+    api[logistix-api<br/><i>REST Gateway & OpenAPI</i>] --> starter[<b>logistix-spring-boot-starter</b><br/><i>Spring AutoConfiguration</i>]
+    starter --> dsl[<b>logistix-dsl</b><br/><i>Public API & Fluent DSL</i>]
+    examples[logistix-examples<br/><i>Code Samples & Guides</i>] --> dsl
+    
+    dsl --> engine[<b>logistix-engine</b><br/><i>Runtime Execution Engine</i>]
+    engine --> domain[<b>logistix-domain</b><br/><i>Pure Java 21 Framework Core</i>]
+    
     starter --> rag[logistix-rag<br/><i>RAG & Knowledge Retrieval</i>]
     starter --> ai[logistix-ai<br/><i>Model Providers & Prompts</i>]
     starter --> sim[logistix-simulation<br/><i>Fleet & Weather Simulators</i>]
     starter --> bm[logistix-benchmark<br/><i>Model & Decision Evaluators</i>]
     
-    engine --> domain[<b>logistix-domain</b><br/><i>Pure Java 21 Framework Core</i>]
-    de[logistix-decision-engine] --> domain
     rag --> domain
     ai --> domain
     sim --> domain
     bm --> domain
     
-    domain --> common[logistix-common<br/><i>Shared Models & Exceptions</i>]
+    domain --> common[logistix-common<br/><i>Shared Models & Utilities</i>]
 ```

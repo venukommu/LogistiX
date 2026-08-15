@@ -1,7 +1,7 @@
 # LogistiX
 
 > **Open Source Framework for AI-Powered Operational Decision Making**
-> *Explainable, Multi-Criteria Decision Intelligence for Supply Chains & Beyond*
+> *Explainable, Multi-Criteria Decision Intelligence with Fluent DSL & Spring Boot Integration*
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
@@ -15,47 +15,124 @@
 
 **LogistiX** is an extensible open-source framework for building **AI-powered operational decision systems**.
 
-LogistiX is **not** a single-purpose logistics application; it is a reusable framework designed to solve complex operational decision problems where mathematical optimization, business compliance, and AI explainability intersect.
-
-### Supported Decision Domains
-While **AI-assisted Driver Dispatch** serves as the initial reference capability, the framework is architected to power:
-- 🚚 **Driver Dispatch & Load Assignment**: Proximity, Hours of Service (HOS), and equipment matching.
-- 🏢 **Carrier Recommendation**: Rate vs. reliability trade-off evaluation for 3PL freight brokers.
-- 🗺️ **Dynamic Route Optimization**: Multi-stop routing under real-time traffic and time windows.
-- ⏱️ **Predictive ETA Estimation**: Ingesting live telematics, weather, and congestion models.
-- 💰 **Dynamic Freight Pricing**: Spot market rate quotation based on lane elasticity.
-- 🏭 **Dock & Yard Scheduling**: Constrained bay door scheduling for warehouse management.
-- 🛡️ **Fraud & Anomaly Detection**: Identifying GPS spoofing, phantom loads, and driver deviations.
-- 🤖 **Multi-Agent Coordination**: Autonomous negotiation between shipper, broker, and carrier agents.
+Inspired by the developer ergonomics of **Spring Boot**, the pipeline flexibility of **LangGraph**, the resiliency of **Temporal**, and the declarative fluency of **Apache Camel**, LogistiX empowers engineers to assemble multi-stage decision pipelines that combine:
+- **Deterministic Hard Constraints & Feasibility Guardrails**
+- **Business Policy Rules with Explicit Precedence**
+- **AI / LLM Semantic Reasoning & RAG Retrieval**
+- **Multi-Criteria Normalized Scoring & Explainability**
 
 ---
 
-## 🏛️ Framework Execution Engine Architecture
+## ⚡ Quick Start: Hello World in 4 Lines
 
-At the center of LogistiX is the **Execution Engine (`logistix-engine`)**, a domain-agnostic runtime inspired by Spring, LangGraph, and Temporal:
+With `logistix-dsl`, running a decision requires zero boilerplate:
 
-1. **`LogistiXContext` (The Global Container)**:
-   - Analogous to Spring's `ApplicationContext`.
-   - Coordinates `DecisionRegistry`, `PluginRegistry`, `HookRegistry`, `MetricsCollector`, `DomainEventPublisher`, and `DecisionExecutor`.
-2. **`DecisionPipeline` & Fluent Builder**:
-   - Immutable pipeline created via `DecisionPipeline.builder().step(...).build()`.
-   - Supports arbitrary sequence of `DecisionStep` stages without hardcoded domain logic.
-3. **`DecisionStep` Contract**:
-   - Pure transformation: $( \text{DecisionContext} \to \text{StepResult} )$.
-   - Core step specializations: `ConstraintStep`, `RuleStep`, `AIStep`, `ScoringStep`, `RecommendationStep`.
-4. **`DecisionPlugin` & Lifecycle Hooks**:
-   - Dynamic plugin SPI contributing custom steps and interceptors (`BeforeDecision`, `AfterDecision`, `BeforeStep`, `AfterStep`, `DecisionCompleted`, `DecisionFailed`).
-5. **Replayable `DecisionTrace` & Quantitative `DecisionMetrics`**:
-   - Captures detailed step-by-step state transitions for visual replay and regulatory audits.
+```java
+import org.logistix.dsl.LogistiX;
+import org.logistix.domain.decision.DecisionResult;
+
+public class App {
+    public static void main(String[] args) {
+        DecisionResult<String> result = LogistiX.<String>decision("driver-dispatch")
+                .fact("shipmentId", "SHIP-9901")
+                .fact("origin", "Chicago, IL")
+                .fact("destination", "Detroit, MI")
+                .fact("weightLbs", 18500)
+                .execute();
+
+        System.out.println("Recommended Option: " + result.recommendation().item());
+        System.out.println("Normalized Score: " + result.score().value());
+        System.out.println("Confidence: " + result.confidence());
+        System.out.println("Explanation: " + result.explanation().summary());
+    }
+}
+```
 
 ---
 
-## 📐 Engine Execution Flow
+## 🏗️ Assembling Pipelines with Fluent DSL
+
+```java
+// 1. Build an immutable decision pipeline
+DecisionPipeline pipeline = LogistiX.pipeline("carrier-recommendation")
+    .name("Standard-Carrier-Selection")
+    .version("1.0.0")
+    .step(new CarrierAvailabilityConstraintStep())
+    .step(new ServiceLevelAgreementRuleStep())
+    .step(new RouteRiskAiStep())
+    .step(new MultiCriteriaScoringStep())
+    .step(new ExplainableRecommendationStep())
+    .build();
+
+// 2. Register pipeline in the runtime container
+LogistiX.getContext().getDecisionRegistry().register(pipeline);
+
+// 3. Execute decision
+DecisionResult<Carrier> result = LogistiX.<Carrier>decision("carrier-recommendation")
+    .fact("lane", "LAX -> JFK")
+    .execute();
+```
+
+---
+
+## 🏷️ Declarative Annotations
+
+LogistiX provides clean annotations for declarative component declaration:
+
+```java
+@DecisionRule(id = "RULE-PREMIUM-SLA", name = "Tier-1 Priority Boost", priority = 10)
+public class PremiumCarrierRule implements Rule<CarrierCandidate> {
+    @Override
+    public RuleOutcome evaluate(CarrierCandidate carrier, DecisionContext context) {
+        if ("TIER_1".equals(carrier.tier())) {
+            return RuleOutcome.passed("RULE-PREMIUM-SLA", "Tier-1 Priority Boost", "Qualified for priority", 0.15);
+        }
+        return RuleOutcome.passed("RULE-PREMIUM-SLA", "Tier-1 Priority Boost", "Standard evaluation");
+    }
+}
+```
+
+- **`@DecisionPipeline("decision-type")`**: Declares a pipeline bean.
+- **`@DecisionRule(id = "...", priority = 1)`**: Declares a business rule with priority.
+- **`@DecisionConstraint(id = "...", severity = HARD)`**: Declares an operational guardrail.
+- **`@DecisionPlugin(id = "...")`**: Declares a pluggable framework extension.
+
+---
+
+## 🍃 Spring Boot Auto-Configuration
+
+Include `logistix-spring-boot-starter` in your `pom.xml`:
+
+```xml
+<dependency>
+    <groupId>org.logistix</groupId>
+    <artifactId>logistix-spring-boot-starter</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+</dependency>
+```
+
+Spring Boot automatically scans and registers all `@DecisionPipeline`, `@DecisionRule`, `@DecisionConstraint`, and `@DecisionPlugin` beans into `LogistiXContext` on startup!
+
+### Configuration Properties (`application.yml`)
+
+```yaml
+logistix:
+  enabled: true
+  default-timeout: 10s
+  trace-level: DETAILED
+  strict-constraints: true
+  fail-fast-on-rule-error: false
+  auto-discovery: true
+```
+
+---
+
+## 📐 Architecture & Decision Flow
 
 ```mermaid
 flowchart TD
     subgraph Client ["1. Invocation"]
-        REQ["<b>DecisionRequest&lt;T&gt;</b>"]
+        REQ["<b>DecisionRequest&lt;T&gt;</b> or <b>LogistiX.decision()</b>"]
     end
 
     subgraph Container ["2. LogistiXContext Runtime Container"]
@@ -107,79 +184,36 @@ LogistiX/
 │   ├── logistix-common/               # Shared Value Objects, Exceptions, Utilities (Pure Java 21)
 │   ├── logistix-domain/               # Pure Domain Layer: DecisionContext, Facts, Rules, Ports
 │   ├── logistix-engine/               # Framework Execution Runtime: Pipelines, Steps, Traces, Plugins
+│   ├── logistix-dsl/                  # Public API Facade, Fluent DSLs, Annotations, Builders, CLI
 │   ├── logistix-decision-engine/      # Composite Pipeline Orchestrators & Strategy Registry
 │   ├── logistix-ai/                   # AI Provider Abstractions, Prompts, Tool Calling via Spring AI
 │   ├── logistix-rag/                  # Knowledge Ingestion, Retrievers & pgvector Integration
 │   ├── logistix-simulation/           # Synthetic Fleet, Demand, Weather & Traffic Simulators
 │   ├── logistix-benchmark/            # Model, Rule Engine, and Decision Pipeline Evaluators
-│   ├── logistix-starter/              # Spring Boot AutoConfiguration & Properties Binding
+│   ├── logistix-spring-boot-starter/  # Spring Boot AutoConfiguration, Scanning & Properties Binding
+│   ├── logistix-starter/              # Core Starter Wiring
 │   └── logistix-api/                  # REST Gateway, OpenAPI 3, and Global Exception Handling
+├── examples/                          # Self-contained executable code samples & tutorials
 ├── frontend/                          # Dispatcher UI & Map Visualizers (Reserved)
 ├── datasets/                          # Benchmark Logistics Datasets & Telemetry Schemas
 ├── training/                          # Fine-tuning recipes & offline ML pipelines
 ├── docs/                              # Project Documentation & Architecture Guides
 ├── architecture/                      # Architectural specs, C4 diagrams, and ADRs
 │   └── ADRs/                          # Architecture Decision Records
-├── docker/
-│   ├── docker-compose.yml             # PostgreSQL 17 + pgvector service
-│   └── postgres/
-│       └── 01-init-pgvector.sql       # Vector extension initialization script
-├── examples/                          # API Request samples & scenario configurations
-└── .github/
-    └── workflows/
-        └── ci.yml                     # GitHub Actions CI Workflow
+└── docker/
+    ├── docker-compose.yml             # PostgreSQL 17 + pgvector service
+    └── postgres/
+        └── 01-init-pgvector.sql       # Vector extension initialization script
 ```
 
 ---
 
-## 📦 Module Responsibilities
-
-| Module | Responsibility | Framework Coupling |
-| :--- | :--- | :--- |
-| **`logistix-common`** | Base value objects (`Coordinates`, `Money`, `EntityId`), standard exceptions, assertions. | Pure Java 21 |
-| **`logistix-domain`** | **Framework Domain Core**: `DecisionContext`, `DecisionResult`, `Recommendation`, `FactBag`, `Explanation`, `DecisionAudit`, Domain Events, Outbound SPIs. | Pure Java 21 |
-| **`logistix-engine`** | **Framework Runtime**: `DecisionPipeline`, `DecisionStep`, `DecisionExecutor`, `DecisionTrace`, `DecisionMetrics`, `DecisionPlugin`, `LogistiXContext`. | Pure Java 21 |
-| **`logistix-decision-engine`** | Pipeline execution coordination, composite rule evaluators, and strategy registries. | `logistix-domain` |
-| **`logistix-ai`** | Foundation model provider contracts, prompt abstractions, and tool calling via Spring AI. | Spring AI Core |
-| **`logistix-rag`** | Knowledge ingestion, vector embeddings, similarity search, and pgvector store driver. | Spring AI, pgvector |
-| **`logistix-simulation`** | Architecture contracts for synthetic fleet, shipment, weather, traffic, and scenario generation. | `logistix-domain` |
-| **`logistix-benchmark`** | Architecture contracts for evaluating base models, fine-tuned models, rule engines, decision engines, and RAG. | `logistix-domain` |
-| **`logistix-starter`** | Spring Boot AutoConfiguration (`@AutoConfiguration`), properties binding, and IoC wiring. | Spring Boot Starter |
-| **`logistix-api`** | REST gateway, OpenAPI 3 documentation, Actuator metrics, and RFC 7807 problem details handler. | Spring Web / Springdoc |
-
----
-
-## 🛠️ Build & Quickstart
-
-### Prerequisites
-- **JDK 21** or higher
-- **Maven 3.8+**
-- **Docker & Docker Compose**
-
-### 1. Start Infrastructure (PostgreSQL 17 + pgvector)
-
-```bash
-cd docker
-docker compose up -d
-```
-
-### 2. Build Multi-Module Project
+## 🛠️ Build & Verification
 
 ```bash
 cd backend
-mvn clean install
+mvn clean test-compile
 ```
-
-### 3. Run the API Gateway
-
-```bash
-cd backend/logistix-api
-mvn spring-boot:run
-```
-
-- **Interactive Swagger UI**: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
-- **OpenAPI Schema Definition**: [http://localhost:8080/api-docs](http://localhost:8080/api-docs)
-- **Actuator Health & Metrics**: [http://localhost:8080/actuator](http://localhost:8080/actuator)
 
 ---
 
