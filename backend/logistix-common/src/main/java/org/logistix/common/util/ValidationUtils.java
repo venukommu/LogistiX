@@ -1,13 +1,15 @@
 package org.logistix.common.util;
 
-import org.logistix.common.exception.ValidationException;
+import org.logistix.common.model.DomainAssertions;
 
 import java.util.Collection;
-import java.util.Objects;
 
 /**
- * Common validation utilities for domain value assertions.
+ * Validation utility facade.
+ *
+ * @deprecated Prefer using {@link DomainAssertions} for explicit domain-oriented assertion semantics.
  */
+@Deprecated(since = "0.1.0", forRemoval = false)
 public final class ValidationUtils {
 
     private ValidationUtils() {
@@ -15,30 +17,18 @@ public final class ValidationUtils {
     }
 
     public static <T> T requireNonNull(T obj, String fieldName) {
-        if (obj == null) {
-            throw new ValidationException(fieldName + " must not be null");
-        }
-        return obj;
+        return DomainAssertions.requireNonNull(obj, fieldName);
     }
 
     public static String requireNonBlank(String str, String fieldName) {
-        if (str == null || str.trim().isEmpty()) {
-            throw new ValidationException(fieldName + " must not be blank");
-        }
-        return str;
+        return DomainAssertions.requireNonBlank(str, fieldName);
     }
 
     public static <T extends Collection<?>> T requireNotEmpty(T collection, String fieldName) {
-        if (collection == null || collection.isEmpty()) {
-            throw new ValidationException(fieldName + " must not be empty");
-        }
-        return collection;
+        return DomainAssertions.requireNotEmpty(collection, fieldName);
     }
 
     public static double requirePositive(double value, String fieldName) {
-        if (value <= 0) {
-            throw new ValidationException(fieldName + " must be strictly positive");
-        }
-        return value;
+        return DomainAssertions.requirePositive(value, fieldName);
     }
 }

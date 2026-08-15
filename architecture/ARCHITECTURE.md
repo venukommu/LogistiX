@@ -1,4 +1,4 @@
-# LogistiX Architecture Specification: Decision Intelligence Platform
+# LogistiX Architecture Specification: Release Candidate 1 (RC1)
 
 ## 1. Executive Summary & Philosophy
 
@@ -10,7 +10,7 @@ Every decision problem—whether Driver Dispatch, Carrier Recommendation, Multi-
 
 ---
 
-## 2. Decision Intelligence Architecture (`logistix-model`)
+## 2. Decision Intelligence Architecture (`logistix-model` & `logistix-engine`)
 
 ```mermaid
 flowchart TD
@@ -24,12 +24,10 @@ flowchart TD
         subgraph Topologies ["Supported Model Topologies"]
             DG["<b>DecisionGraph</b><br/><i>(DAG, Cyclic, Branching)</i>"]
             DP["<b>ModelPipeline</b><br/><i>(Sequential Pipeline)</i>"]
-            DT["<b>DecisionTable / DecisionTree</b>"]
         end
         
         DM --> DG
         DM --> DP
-        DM --> DT
     end
 
     subgraph StrategyLayer ["Execution Strategies (ExecutionStrategy)"]
@@ -44,7 +42,7 @@ flowchart TD
         PLAN["<b>ExecutionPlan</b><br/>• ExecutionStages<br/>• ExecutionUnits<br/>• ExecutionCursor"]
     end
 
-    subgraph Runtime ["Execution Engine & Telemetry"]
+    subgraph Runtime ["Execution Engine & Telemetry (logistix-engine)"]
         STATE["<b>DecisionState</b><br/><i>(Facts, NodeOutputs, Errors, Variables)</i>"]
         MEM["<b>DecisionMemory</b><br/><i>(Remember, Retrieve, Search)</i>"]
         VIS["<b>DecisionVisualizer</b><br/><i>(Mermaid, JSON, PlantUML, GraphViz)</i>"]
@@ -84,84 +82,7 @@ Each node in a `DecisionModel` represents an atomic, isolated unit of work:
 
 ---
 
-## 4. Decision Graph & Fluent Graph DSL
-
-```java
-// Construct a DAG DecisionGraph with zero boilerplate
-DecisionGraph graph = LogistiX.graph("carrier-intelligence-graph")
-    .name("Carrier Multi-Branch Evaluation")
-    .addNode(DecisionGraphNode.of("hos-check", "Check Driver HOS", NodeType.CONSTRAINT))
-    .addNode(DecisionGraphNode.of("weather-risk", "Predict Weather Impact", NodeType.AI))
-    .addNode(DecisionGraphNode.of("traffic-delay", "Predict Traffic Congestion", NodeType.AI))
-    .addNode(DecisionGraphNode.of("score-synthesis", "Aggregate & Score", NodeType.SCORING, List.of("weather-risk", "traffic-delay")))
-    .addNode(DecisionGraphNode.of("recommendation", "Final Recommendation", NodeType.RECOMMENDATION, List.of("score-synthesis")))
-    .addEdge("hos-check", "weather-risk")
-    .addEdge("hos-check", "traffic-delay")
-    .addEdge("weather-risk", "score-synthesis")
-    .addEdge("traffic-delay", "score-synthesis")
-    .addEdge("score-synthesis", "recommendation")
-    .build();
-
-// Render to Mermaid
-String mermaidDiagram = LogistiX.visualizer().toMermaid(graph);
-```
-
----
-
-## 5. Declarative YAML DSL Schema
-
-Decision topologies can be authored directly in YAML for zero-code deployments:
-
-```yaml
-decision:
-  name: dynamic-driver-dispatch
-  strategy: graph
-  version: 1.0.0
-  description: Multi-branch AI dispatch under real-time constraints
-  nodes:
-    - id: hos-guardrail
-      type: CONSTRAINT
-    - id: weather-inference
-      type: AI
-      properties:
-        model: gpt-4o
-        temperature: 0.2
-    - id: congestion-model
-      type: AI
-      properties:
-        model: gpt-4o
-    - id: multi-criteria-scorer
-      type: SCORING
-      dependencies: [weather-inference, congestion-model]
-    - id: dispatch-recommendation
-      type: RECOMMENDATION
-      dependencies: [multi-criteria-scorer]
-  edges:
-    - source: hos-guardrail
-      target: weather-inference
-    - source: hos-guardrail
-      target: congestion-model
-    - source: weather-inference
-      target: multi-criteria-scorer
-    - source: congestion-model
-      target: multi-criteria-scorer
-    - source: multi-criteria-scorer
-      target: dispatch-recommendation
-```
-
----
-
-## 6. Execution Strategies (`org.logistix.model.strategy`)
-
-1. **`SequentialExecutionStrategy`**: Compiles linear pipelines executing in strict serial order.
-2. **`ParallelExecutionStrategy`**: Automatically identifies independent nodes and stages them for concurrent execution.
-3. **`GraphExecutionStrategy`**: Evaluates directed acyclic graphs (DAGs) using topological sorting.
-4. **`ConditionalExecutionStrategy`**: Dynamically evaluates edge predicate conditions at runtime based on the `DecisionState`.
-5. **`AgentExecutionStrategy`**: Manages autonomous ReAct / multi-agent reasoning and reflection loops.
-
----
-
-## 7. Multi-Module Hierarchy
+## 4. Consolidated Multi-Module Hierarchy
 
 ```mermaid
 graph TD
@@ -188,3 +109,18 @@ graph TD
     
     domain --> common[logistix-common<br/><i>Shared Models & Utilities</i>]
 ```
+
+---
+
+## 5. API Stability Matrix (RC1)
+
+| Contract Group | Package | Stability |
+| :--- | :--- | :--- |
+| **Public Entry Point** | `org.logistix.dsl.LogistiX` | **Stable** |
+| **Fluent DSLs** | `org.logistix.dsl.fluent.*` | **Stable** |
+| **Annotations** | `org.logistix.dsl.annotation.*` | **Stable** |
+| **Core Domain Models** | `org.logistix.domain.decision.*`, `org.logistix.domain.fact.*` | **Stable** |
+| **Decision Models & Graph** | `org.logistix.model.model.*`, `org.logistix.model.graph.*` | **Stable** |
+| **Execution Strategies** | `org.logistix.model.strategy.*` | **Stable** |
+| **Engine Runtime & SPI** | `org.logistix.engine.executor.*`, `org.logistix.engine.plugins.*` | **Stable** |
+| **Spring Boot Integration** | `org.logistix.starter.autoconfig.*`, `org.logistix.starter.scanner.*` | **Stable** |
