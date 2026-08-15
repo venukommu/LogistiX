@@ -24,14 +24,12 @@
         <module>logistix-common</module>
         <module>logistix-domain</module>
         <module>logistix-model</module>
-        <module>logistix-decision-engine</module>
         <module>logistix-engine</module>
         <module>logistix-dsl</module>
         <module>logistix-ai</module>
         <module>logistix-rag</module>
         <module>logistix-simulation</module>
         <module>logistix-benchmark</module>
-        <module>logistix-starter</module>
         <module>logistix-spring-boot-starter</module>
         <module>logistix-api</module>
         <module>../examples</module>
@@ -112,11 +110,6 @@
             </dependency>
             <dependency>
                 <groupId>org.logistix</groupId>
-                <artifactId>logistix-decision-engine</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.logistix</groupId>
                 <artifactId>logistix-engine</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -143,11 +136,6 @@
             <dependency>
                 <groupId>org.logistix</groupId>
                 <artifactId>logistix-benchmark</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.logistix</groupId>
-                <artifactId>logistix-starter</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
