@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest an idea or architectural improvement for LogistiX
+labels: ["enhancement", "proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please refer to our [Constitution](docs/CONSTITUTION.md) and [API Stability Policy](docs/API_STABILITY.md) before proposing major architectural shifts.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Is your feature request related to a problem?
+      description: A clear description of the operational decision problem you are addressing.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the framework abstraction, execution strategy, or node type you would like added.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or workarounds you have evaluated.
