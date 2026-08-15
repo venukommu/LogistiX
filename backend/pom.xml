@@ -10,7 +10,7 @@
     <packaging>pom</packaging>
 
     <name>LogistiX Parent</name>
-    <description>Open Source AI Platform for Logistics &amp; Transportation</description>
+    <description>Open Source Framework for AI-Powered Operational Decision Making</description>
     <url>https://github.com/logistix-ai/logistix</url>
 
     <licenses>
@@ -22,10 +22,13 @@
 
     <modules>
         <module>logistix-common</module>
-        <module>logistix-core</module>
+        <module>logistix-domain</module>
         <module>logistix-decision-engine</module>
+        <module>logistix-engine</module>
         <module>logistix-ai</module>
         <module>logistix-rag</module>
+        <module>logistix-simulation</module>
+        <module>logistix-benchmark</module>
         <module>logistix-starter</module>
         <module>logistix-api</module>
     </modules>
@@ -95,12 +98,17 @@
             </dependency>
             <dependency>
                 <groupId>org.logistix</groupId>
-                <artifactId>logistix-core</artifactId>
+                <artifactId>logistix-domain</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.logistix</groupId>
                 <artifactId>logistix-decision-engine</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.logistix</groupId>
+                <artifactId>logistix-engine</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -111,6 +119,16 @@
             <dependency>
                 <groupId>org.logistix</groupId>
                 <artifactId>logistix-rag</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.logistix</groupId>
+                <artifactId>logistix-simulation</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.logistix</groupId>
+                <artifactId>logistix-benchmark</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

@@ -17,7 +17,19 @@
     <dependencies>
         <dependency>
             <groupId>org.logistix</groupId>
-            <artifactId>logistix-core</artifactId>
+            <artifactId>logistix-domain</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.logistix</groupId>
+            <artifactId>logistix-engine</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.logistix</groupId>
+            <artifactId>logistix-simulation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.logistix</groupId>
+            <artifactId>logistix-benchmark</artifactId>
         </dependency>
         <dependency>
             <groupId>org.logistix</groupId>

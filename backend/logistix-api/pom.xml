@@ -21,7 +21,7 @@
         </dependency>
         <dependency>
             <groupId>org.logistix</groupId>
-            <artifactId>logistix-core</artifactId>
+            <artifactId>logistix-domain</artifactId>
         </dependency>
         <dependency>
             <groupId>org.logistix</groupId>

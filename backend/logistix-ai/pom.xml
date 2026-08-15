@@ -17,7 +17,7 @@
     <dependencies>
         <dependency>
             <groupId>org.logistix</groupId>
-            <artifactId>logistix-core</artifactId>
+            <artifactId>logistix-domain</artifactId>
         </dependency>
 
         <!-- Spring AI Core -->
