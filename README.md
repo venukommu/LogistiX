@@ -341,7 +341,7 @@ logistix:
       authorities:                                    # Trusted authorities list
         - LogistiX-Governance-Authority
         - LogistiX-Authority-Primary
-      ttl: 5m                                         # Token expiration window
+      ttl: 5m                                         # Authorization expiration window
     approvers:                                        # Human supervisor approvers
       - id: SUPERVISOR-001
         allowed-action-types:

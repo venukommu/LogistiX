@@ -107,7 +107,7 @@ LogistiX enforces a strict, technology-neutral authorization boundary where inte
    - `AuthorizedAction` is an immutable `final class` with package-private construction restricted to trusted `ActionAuthorizationIssuer` implementations.
 5. **Tamper-Evident Integrity via Canonical SHA-256 Fingerprint**:
    - Every `AuthorizedAction` carries an immutable `authorizationFingerprint` computed deterministically over:
-     `actionType`, `targetResource`, recursively canonicalized `parameters`, `policyApplied`, `issuerId`, `correlationId`, `idempotencyKey`, and `expiresAt`.
+     `actionType`, `targetResource`, recursively canonicalized `parameters`, `policyApplied`, `issuerId` (`authorityId`), `correlationId`, `idempotencyKey`, and `expiresAt`.
 6. **Exact-Boundary Expiration**:
    - Authorizations possess an `expiresAt` window (default 5 minutes). At `now >= expiresAt`, the authorization is strictly treated as expired.
 7. **Atomic Idempotency Reservation**:
