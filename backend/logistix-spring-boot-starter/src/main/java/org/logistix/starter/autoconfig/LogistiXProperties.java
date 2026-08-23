@@ -4,6 +4,8 @@ import org.logistix.engine.configuration.TraceLevel;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Spring Boot Configuration Properties for LogistiX.
@@ -19,6 +21,7 @@ public class LogistiXProperties {
     private boolean autoDiscovery = true;
     private AiProperties ai = new AiProperties();
     private KnowledgeProperties knowledge = new KnowledgeProperties();
+    private SecurityProperties security = new SecurityProperties();
 
     public boolean isEnabled() {
         return enabled;
@@ -84,6 +87,14 @@ public class LogistiXProperties {
         this.knowledge = knowledge;
     }
 
+    public SecurityProperties getSecurity() {
+        return security;
+    }
+
+    public void setSecurity(SecurityProperties security) {
+        this.security = security;
+    }
+
     public static class AiProperties {
         private boolean enabled = true;
         private String provider = "mock"; // "mock", "spring-ai", "disabled"
@@ -120,5 +131,50 @@ public class LogistiXProperties {
 
         public int getTopK() { return topK; }
         public void setTopK(int topK) { this.topK = Math.max(1, topK); }
+    }
+
+    public static class SecurityProperties {
+        private boolean enabled = true;
+        private AuthorizationSecurityProperties authorization = new AuthorizationSecurityProperties();
+        private List<ApproverSecurityProperties> approvers = new ArrayList<>();
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public AuthorizationSecurityProperties getAuthorization() { return authorization; }
+        public void setAuthorization(AuthorizationSecurityProperties authorization) { this.authorization = authorization; }
+
+        public List<ApproverSecurityProperties> getApprovers() { return approvers; }
+        public void setApprovers(List<ApproverSecurityProperties> approvers) { this.approvers = approvers; }
+    }
+
+    public static class AuthorizationSecurityProperties {
+        private String authorityId = "LogistiX-Governance-Authority";
+        private String issuerId = "LogistiX-Governance-Authority";
+        private List<String> authorities = new ArrayList<>(List.of("LogistiX-Governance-Authority", "LogistiX-Authority-Primary"));
+
+        public String getAuthorityId() { return authorityId; }
+        public void setAuthorityId(String authorityId) { this.authorityId = authorityId; }
+
+        public String getIssuerId() { return issuerId; }
+        public void setIssuerId(String issuerId) { this.issuerId = issuerId; }
+
+        public List<String> getAuthorities() { return authorities; }
+        public void setAuthorities(List<String> authorities) { this.authorities = authorities; }
+    }
+
+    public static class ApproverSecurityProperties {
+        private String id;
+        private List<String> allowedActionTypes = new ArrayList<>();
+        private boolean enabled = true;
+
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+
+        public List<String> getAllowedActionTypes() { return allowedActionTypes; }
+        public void setAllowedActionTypes(List<String> allowedActionTypes) { this.allowedActionTypes = allowedActionTypes; }
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
     }
 }

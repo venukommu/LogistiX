@@ -6,6 +6,8 @@
 
 > **"Only trusted LogistiX issuance components can create executable authorization artifacts."**
 
+> **"Trust configuration is established at startup, validated once, then immutable during runtime."**
+
 In enterprise logistics operations (TMS, Fleet Management, ERP), an AI model, LLM agent, or heuristic algorithm must **never** be granted autonomous write access to enterprise tools.
 
 LogistiX enforces a strict, technology-neutral authorization boundary where intelligence producers can only generate unverified `ActionProposal` instances. Every proposal must pass deterministic policy, risk, and constraint evaluations before an immutable `AuthorizedAction` is minted by a trusted `ActionAuthorizationIssuer`.
@@ -55,24 +57,51 @@ LogistiX enforces a strict, technology-neutral authorization boundary where inte
 
 ---
 
-## 3. Fundamental Invariants & Issuance Security
+## 3. Trusted Issuer & Approver Configuration
 
-1. **Closed Issuance Boundary**:
+```
+             application.yml
+                    │
+                    ▼
+            LogistiX Properties
+                    │
+                    ▼
+         Security Configuration
+                    │
+            ┌───────┴────────┐
+            ▼                ▼
+      Authority Registry  Approver Registry
+            │                │
+            └───────┬────────┘
+                    ▼
+                 VALIDATE
+                    │
+                    ▼
+                  FREEZE
+                    │
+                    ▼
+             RUNTIME READ ONLY
+                    │
+          ┌─────────┴─────────┐
+          ▼                   ▼
+    Authorization Issuer   Approval Issuer
+```
+
+1. **Startup Lifecycle**:
+   - Security properties are read from `application.yml` via `LogistiXProperties`.
+   - `AuthorizationAuthorityRegistry` and `TrustedApproverRegistry` are populated during application initialization.
+   - Registries are validated (rejecting blank or duplicate IDs) and frozen via `freeze()`.
+   - Any runtime attempt to mutate registries throws `IllegalStateException`.
+2. **Closed Issuance Boundary**:
    - `AuthorizedAction` is an immutable `final class` with package-private construction restricted to trusted `ActionAuthorizationIssuer` implementations.
    - Public convenience factories (`AuthorizedAction.of`, `AuthorizedAction.createForTesting`) are eliminated from production code.
-2. **Trusted Authorization Authority Verification**:
+3. **Trusted Authorization Authority Verification**:
    - `AuthorizationProvenance` records issuer authority metadata.
    - `McpActionExecutor` validates provenance against the in-process `AuthorizationAuthorityRegistry`.
-3. **Tamper-Evident Integrity via Canonical SHA-256 Fingerprint**:
+4. **Tamper-Evident Integrity via Canonical SHA-256 Fingerprint**:
    - Every `AuthorizedAction` carries an immutable `authorizationFingerprint` computed deterministically over:
      `actionType`, `targetResource`, recursively canonicalized `parameters`, `policyApplied`, `issuerId`, `correlationId`, `idempotencyKey`, and `expiresAt`.
    - Modifying any parameter (including nested collections) or swapping a target resource after authorization triggers a fingerprint mismatch and halts execution.
-4. **Deterministic Parameter Canonicalization**:
-   - Canonicalized via `ParameterCanonicalizer`:
-     - Map keys sorted lexicographically (`M:{k1=v1,k2=v2}`).
-     - Set elements deterministically sorted (`SET:[e1,e2]`).
-     - List element order preserved (`L:[e1,e2]`).
-     - Explicit typed prefixes (`S:`, `N:`, `B:`, `E:`, `null`) prevent delimiter collision.
 5. **Exact-Boundary Expiration**:
    - Authorizations possess an `expiresAt` window (default 5 minutes). At `now >= expiresAt`, the authorization is strictly treated as expired.
 6. **Atomic Idempotency Reservation**:
@@ -94,7 +123,7 @@ Governance Evaluation → APPROVAL_REQUIRED (0 MCP Calls)
 Operational Supervisor Grants Approval
      ↓
 Trusted Approval Issuer (ActionApprovalIssuer)
-  ├── Validate Approver against TrustedApproverRegistry
+  ├── Validate Approver against Frozen TrustedApproverRegistry
   ├── Generate ApprovalProvenance
   └── Mint Single-Use ActionApprovalGrant
      ↓
@@ -119,9 +148,10 @@ ActionExecutor Dispatches to MCP
 
 | Capability | LogistiX Reference Implementation | Future Production Deployment |
 | :--- | :--- | :--- |
+| **Trust Configuration** | Validated & Frozen in-process registries | Central Configuration / Vault / Spring Cloud Config |
 | **Authorization Issuance** | In-Process `ActionAuthorizationIssuer` | Central Authorization Service with HSM/KMS |
 | **Approval Issuance** | In-Process `DefaultActionApprovalIssuer` | Enterprise IAM / SSO / BPMN Gateway (ServiceNow/Okta) |
-| **Approver Registry** | In-Memory `TrustedApproverRegistry` | Enterprise RBAC / ABAC Directory (LDAP/SCIM) |
+| **Approver Registry** | In-Memory Frozen `TrustedApproverRegistry` | Enterprise RBAC / ABAC Directory (LDAP/SCIM) |
 | **Audit Storage** | In-Memory `InMemoryActionAuditStore` | Append-only WORM event store (PostgreSQL/Kafka) |
 | **Idempotency** | In-Memory Atomic Reservation | Distributed Redis / Hazelcast idempotency lock |
 | **Tool Execution** | Deterministic `MockMcpToolServer` | Production MCP Transport (stdio / SSE) with mTLS |

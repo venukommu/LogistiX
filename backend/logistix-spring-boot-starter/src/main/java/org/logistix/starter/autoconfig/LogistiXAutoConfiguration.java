@@ -1,6 +1,11 @@
 package org.logistix.starter.autoconfig;
 
-import org.logistix.domain.events.DomainEvent;
+import org.logistix.domain.action.ActionApprovalIssuer;
+import org.logistix.domain.action.ActionAuthorizationIssuer;
+import org.logistix.domain.action.ActionType;
+import org.logistix.domain.action.DefaultActionApprovalIssuer;
+import org.logistix.domain.action.DefaultActionAuthorizationIssuer;
+import org.logistix.domain.action.TrustedApproverRegistry;
 import org.logistix.domain.events.DomainEventPublisher;
 import org.logistix.dsl.LogistiX;
 import org.logistix.engine.configuration.EngineConfiguration;
@@ -17,6 +22,7 @@ import org.logistix.engine.plugins.DecisionPlugin;
 import org.logistix.engine.plugins.PluginContext;
 import org.logistix.engine.plugins.PluginRegistry;
 import org.logistix.engine.registry.DecisionRegistry;
+import org.logistix.mcp.AuthorizationAuthorityRegistry;
 import org.logistix.starter.scanner.DecisionAutoRegistrar;
 import org.logistix.starter.scanner.PipelineScanner;
 import org.logistix.starter.scanner.PluginScanner;
@@ -30,14 +36,16 @@ import org.springframework.context.annotation.Bean;
 
 import java.time.Duration;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Spring Boot AutoConfiguration for the LogistiX Framework.
+ * Spring Boot AutoConfiguration for the LogistiX Framework with hardened security registries.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(LogistiXProperties.class)
@@ -169,6 +177,69 @@ public class LogistiXAutoConfiguration {
             return org.logistix.rag.knowledge.InMemoryKnowledgeProvider.withDefaults();
         }
         return org.logistix.rag.knowledge.InMemoryKnowledgeProvider.empty();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AuthorizationAuthorityRegistry logistixAuthorizationAuthorityRegistry(LogistiXProperties properties) {
+        AuthorizationAuthorityRegistry registry = AuthorizationAuthorityRegistry.empty();
+        List<String> configuredAuthorities = properties.getSecurity().getAuthorization().getAuthorities();
+        if (configuredAuthorities != null && !configuredAuthorities.isEmpty()) {
+            for (String auth : configuredAuthorities) {
+                registry.registerAuthority(auth);
+            }
+        } else {
+            registry.registerAuthority(properties.getSecurity().getAuthorization().getAuthorityId());
+        }
+        registry.freeze();
+        return registry;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TrustedApproverRegistry logistixTrustedApproverRegistry(LogistiXProperties properties) {
+        List<LogistiXProperties.ApproverSecurityProperties> approverProps = properties.getSecurity().getApprovers();
+        if (approverProps != null && !approverProps.isEmpty()) {
+            TrustedApproverRegistry registry = TrustedApproverRegistry.empty();
+            for (LogistiXProperties.ApproverSecurityProperties prop : approverProps) {
+                if (prop.isEnabled() && prop.getId() != null && !prop.getId().isBlank()) {
+                    Set<ActionType> allowedTypes = new HashSet<>();
+                    if (prop.getAllowedActionTypes() != null && !prop.getAllowedActionTypes().isEmpty()) {
+                        for (String typeCode : prop.getAllowedActionTypes()) {
+                            allowedTypes.add(ActionType.of(typeCode));
+                        }
+                    } else {
+                        allowedTypes.addAll(Set.of(
+                                ActionType.CHANGE_DELIVERY_APPOINTMENT,
+                                ActionType.ASSIGN_DRIVER,
+                                ActionType.UPDATE_SHIPMENT_STATUS
+                        ));
+                    }
+                    registry.registerApprover(prop.getId(), allowedTypes);
+                }
+            }
+            registry.freeze();
+            return registry;
+        }
+        return TrustedApproverRegistry.withStandardLogisticsApprovers();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ActionAuthorizationIssuer logistixActionAuthorizationIssuer(LogistiXProperties properties) {
+        return new DefaultActionAuthorizationIssuer(properties.getSecurity().getAuthorization().getAuthorityId());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ActionApprovalIssuer logistixActionApprovalIssuer(
+            TrustedApproverRegistry trustedApproverRegistry,
+            LogistiXProperties properties
+    ) {
+        return new DefaultActionApprovalIssuer(
+                trustedApproverRegistry,
+                properties.getSecurity().getAuthorization().getAuthorityId()
+        );
     }
 
     @Bean

@@ -32,12 +32,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Sprint 10.2.1 Architectural Security Test Suite: Authorization Issuance Closure & Approval Provenance.
+ * Sprint 10.2.2 Architectural Security Test Suite: Trusted Registry Configuration, Freeze Lifecycle & Provenance.
  */
 public class AuthorizationIssuanceSecurityTest {
 
@@ -388,6 +389,130 @@ public class AuthorizationIssuanceSecurityTest {
 
             assertThat(result.isSuccess()).isFalse();
             assertThat(result.operationId()).isEqualTo("TAMPERED");
+        }
+    }
+
+    @Nested
+    @DisplayName("3. Registry Freeze Lifecycle & Configuration Validation Tests")
+    class RegistryLifecycleAndValidationTests {
+
+        @Test
+        @DisplayName("TEST 6 — AuthorizationAuthorityRegistry freeze lifecycle rejects post-freeze mutation")
+        void testAuthorityRegistryFreezeRejectsMutation() {
+            AuthorizationAuthorityRegistry registry = AuthorizationAuthorityRegistry.empty();
+            registry.registerAuthority("Authority-A");
+            assertThat(registry.isFrozen()).isFalse();
+            assertThat(registry.isRegisteredAuthority("Authority-A")).isTrue();
+
+            registry.freeze();
+            assertThat(registry.isFrozen()).isTrue();
+
+            assertThatThrownBy(() -> registry.registerAuthority("Authority-B"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("frozen and immutable");
+        }
+
+        @Test
+        @DisplayName("TEST 7 — AuthorizationAuthorityRegistry rejects blank and duplicate authority IDs")
+        void testAuthorityRegistryValidation() {
+            AuthorizationAuthorityRegistry registry = AuthorizationAuthorityRegistry.empty();
+
+            assertThatThrownBy(() -> registry.registerAuthority(""))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("must not be null or blank");
+
+            assertThatThrownBy(() -> registry.registerAuthority(null))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("must not be null or blank");
+
+            registry.registerAuthority("Auth-Unique-1");
+
+            assertThatThrownBy(() -> registry.registerAuthority("Auth-Unique-1"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("already registered");
+        }
+
+        @Test
+        @DisplayName("TEST 8 — TrustedApproverRegistry freeze lifecycle rejects post-freeze mutation")
+        void testApproverRegistryFreezeRejectsMutation() {
+            TrustedApproverRegistry registry = TrustedApproverRegistry.empty();
+            registry.registerApprover("Approver-1", Set.of(ActionType.CHANGE_DELIVERY_APPOINTMENT));
+            assertThat(registry.isFrozen()).isFalse();
+            assertThat(registry.isAuthorizedApprover("Approver-1")).isTrue();
+
+            registry.freeze();
+            assertThat(registry.isFrozen()).isTrue();
+
+            assertThatThrownBy(() -> registry.registerApprover("Approver-2", Set.of(ActionType.ASSIGN_DRIVER)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("frozen and immutable");
+        }
+
+        @Test
+        @DisplayName("TEST 9 — TrustedApproverRegistry rejects blank, duplicate, and empty allowed actions")
+        void testApproverRegistryValidation() {
+            TrustedApproverRegistry registry = TrustedApproverRegistry.empty();
+
+            assertThatThrownBy(() -> registry.registerApprover("", Set.of(ActionType.ASSIGN_DRIVER)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("must not be null or blank");
+
+            assertThatThrownBy(() -> registry.registerApprover("Approver-A", Set.of()))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("must not be null or empty");
+
+            registry.registerApprover("Approver-A", Set.of(ActionType.ASSIGN_DRIVER));
+
+            assertThatThrownBy(() -> registry.registerApprover("Approver-A", Set.of(ActionType.ASSIGN_DRIVER)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("already registered");
+        }
+
+        @Test
+        @DisplayName("TEST 10 — Runtime Trust Escalation Attack: Attacker cannot register rogue authority after freeze to pass execution")
+        void testRuntimeTrustEscalationPrevented() {
+            AuthorizationAuthorityRegistry registry = AuthorizationAuthorityRegistry.withStandardAuthorities();
+            assertThat(registry.isFrozen()).isTrue();
+
+            // Attacker attempts runtime trust escalation
+            assertThatThrownBy(() -> registry.registerAuthority("Attacker-Injected-Authority"))
+                    .isInstanceOf(IllegalStateException.class);
+
+            // Attempting to execute action with unverified authority is rejected by McpActionExecutor
+            McpActionExecutor customExecutor = new McpActionExecutor(
+                    ToolRegistry.withStandardLogisticsTools(),
+                    toolServer,
+                    registry,
+                    fixedClock
+            );
+
+            AuthorizationProvenance attackerProv = new AuthorizationProvenance(
+                    "Attacker-Injected-Authority",
+                    "ISSUE-ATTACK",
+                    "PROV-LGX-ATTACK00000",
+                    "ACTION_EXECUTION",
+                    fixedClock.instant()
+            );
+
+            AuthorizedAction unverifiedAction = AuthorizedActionTestFactory.forgedAction(
+                    "ACT-ESCALATE",
+                    ActionType.CHANGE_DELIVERY_APPOINTMENT,
+                    "SHIP-ESCALATE",
+                    Map.of("shipmentId", "SHIP-ESCALATE", "newAppointmentTime", "2026-08-25T10:00:00Z"),
+                    "AUTH-LGX-ESCALATE",
+                    "",
+                    attackerProv,
+                    "Attacker",
+                    "POLICY",
+                    "CORR",
+                    "IDEMP",
+                    fixedClock.instant(),
+                    fixedClock.instant().plus(Duration.ofMinutes(5))
+            );
+
+            ActionResult result = customExecutor.execute(unverifiedAction);
+            assertThat(result.isSuccess()).isFalse();
+            assertThat(result.operationId()).isEqualTo("AUTH-PROVENANCE-ERR");
         }
     }
 }

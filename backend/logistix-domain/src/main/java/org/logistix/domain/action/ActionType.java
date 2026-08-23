@@ -29,7 +29,16 @@ public record ActionType(String code, String description) {
             new ActionType("CANCEL_SHIPMENT", "Cancel shipment order");
 
     public static ActionType of(String code) {
-        return new ActionType(code, code);
+        if (code == null) return null;
+        String normalized = code.trim().toUpperCase();
+        return switch (normalized) {
+            case "CHANGE_DELIVERY_APPOINTMENT" -> CHANGE_DELIVERY_APPOINTMENT;
+            case "ASSIGN_DRIVER" -> ASSIGN_DRIVER;
+            case "UPDATE_SHIPMENT_STATUS" -> UPDATE_SHIPMENT_STATUS;
+            case "REROUTE_SHIPMENT" -> REROUTE_SHIPMENT;
+            case "CANCEL_SHIPMENT" -> CANCEL_SHIPMENT;
+            default -> new ActionType(normalized, normalized);
+        };
     }
 
     public static ActionType of(String code, String description) {
