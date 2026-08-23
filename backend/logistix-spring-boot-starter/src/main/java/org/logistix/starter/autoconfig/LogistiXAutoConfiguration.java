@@ -164,6 +164,15 @@ public class LogistiXAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public org.logistix.domain.ports.KnowledgeProvider logistixKnowledgeProvider(LogistiXProperties properties) {
+        if (properties.getKnowledge().isEnabled()) {
+            return org.logistix.rag.knowledge.InMemoryKnowledgeProvider.withDefaults();
+        }
+        return org.logistix.rag.knowledge.InMemoryKnowledgeProvider.empty();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public DecisionAutoRegistrar logistixDecisionAutoRegistrar(
             LogistiXContext logistixContext,
             PipelineScanner pipelineScanner,

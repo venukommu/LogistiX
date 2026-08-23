@@ -1,14 +1,16 @@
 package org.logistix.ai.dispatch;
 
+import org.logistix.domain.ports.KnowledgeProvider.GroundingDocument;
+
 import java.util.Objects;
 
 /**
  * Dedicated prompt builder constructing versioned, controlled system and user prompts
- * for single-call batched operational dispatch reasoning.
+ * for single-call batched operational dispatch reasoning with enterprise knowledge grounding.
  */
 public final class DispatchPromptBuilder {
 
-    public static final String PROMPT_VERSION = "DRIVER_DISPATCH_AI_PROMPT_V1";
+    public static final String PROMPT_VERSION = "DRIVER_DISPATCH_AI_PROMPT_V2";
 
     private static final String SYSTEM_PROMPT = """
             You are an operational logistics Decision Intelligence Advisor in the LogistiX framework.
@@ -17,9 +19,10 @@ public final class DispatchPromptBuilder {
             NON-NEGOTIABLE OPERATIONAL BOUNDARIES:
             1. You are strictly an ADVISOR. You do NOT define scoring weights or make the final binding dispatch assignment.
             2. Hard feasibility constraints (HOS limits, vehicle payload weight/volume, required endorsements, delivery deadlines) have ALREADY been strictly evaluated and enforced by the engine. You MUST NOT attempt to override them.
-            3. You MUST NOT invent or hallucinate drivers, certifications, or geographic route data.
+            3. You MUST NOT invent or hallucinate drivers, certifications, policies, or geographic route data.
             4. Distinguish verified deterministic facts from qualitative environmental assumptions (e.g. weather advisories, traffic bottlenecks).
-            5. Provide structured advisory signals for each candidate in the batch, including risk level, advisory confidence, concise qualitative reasoning, and warnings.
+            5. When retrieved enterprise knowledge evidence is provided, cite the relevant evidence IDs in "knowledgeEvidenceUsed". Do NOT cite or invent unknown evidence IDs.
+            6. Provide structured advisory signals for each candidate in the batch, including risk level, advisory confidence, concise qualitative reasoning, warnings, and cited knowledge evidence.
             
             JSON RESPONSE SCHEMA:
             {
@@ -29,9 +32,10 @@ public final class DispatchPromptBuilder {
                   "candidateId": "string (matching candidateId)",
                   "riskLevel": "LOW | MEDIUM | HIGH | CRITICAL",
                   "advisoryConfidence": number (between 0.0 and 1.0),
-                  "reasoning": "string (concise qualitative rationale)",
+                  "reasoning": "string (concise qualitative rationale grounded in operational facts and knowledge)",
                   "contributingFactors": ["string"],
-                  "warnings": ["string"]
+                  "warnings": ["string"],
+                  "knowledgeEvidenceUsed": ["string (e.g. DOC-WINTER-001)"]
                 }
               ]
             }
@@ -60,6 +64,15 @@ public final class DispatchPromptBuilder {
         sb.append("Delivery Deadline: ").append(request.deliveryDeadline()).append("\n");
         sb.append("Weather Advisory: ").append(request.weatherAdvisory()).append("\n");
         sb.append("Execution Mode: ").append(request.executionMode()).append("\n\n");
+
+        if (request.knowledgeEvidence() != null && !request.knowledgeEvidence().isEmpty()) {
+            sb.append("--- RETRIEVED ENTERPRISE KNOWLEDGE EVIDENCE (").append(request.knowledgeEvidence().size()).append(") ---\n");
+            for (GroundingDocument doc : request.knowledgeEvidence()) {
+                sb.append(String.format("Evidence [%s] - %s (Source: %s, Section: %s, Relevance: %.2f):\n",
+                        doc.documentId(), doc.title(), doc.source(), doc.section(), doc.relevanceScore()));
+                sb.append("  \"").append(doc.content()).append("\"\n\n");
+            }
+        }
 
         sb.append("--- FEASIBLE CANDIDATE DRIVERS (").append(request.candidates().size()).append(") ---\n");
         for (int i = 0; i < request.candidates().size(); i++) {

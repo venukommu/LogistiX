@@ -2,13 +2,16 @@ package org.logistix.examples.dispatch.pipeline;
 
 import org.logistix.ai.dispatch.MockDispatchAIProvider;
 import org.logistix.domain.ports.AIProvider;
+import org.logistix.domain.ports.KnowledgeProvider;
 import org.logistix.dsl.LogistiX;
 import org.logistix.engine.pipeline.DecisionPipeline;
 import org.logistix.examples.dispatch.ai.DriverDispatchAIStep;
 import org.logistix.examples.dispatch.constraints.DriverDispatchConstraintStep;
+import org.logistix.examples.dispatch.knowledge.DriverDispatchKnowledgeStep;
 import org.logistix.examples.dispatch.recommendation.DriverDispatchRecommendationStep;
 import org.logistix.examples.dispatch.rules.DriverDispatchRuleStep;
 import org.logistix.examples.dispatch.scoring.DriverDispatchScoringStep;
+import org.logistix.rag.knowledge.InMemoryKnowledgeProvider;
 
 /**
  * Factory constructing executable DecisionPipeline instances for commercial driver dispatch in multiple execution modes.
@@ -60,7 +63,7 @@ public final class DispatchDecisionPipelineFactory {
     }
 
     /**
-     * Creates a HYBRID pipeline using a specific AIProvider SPI implementation (e.g. SpringAIDispatchAIProvider or MockDispatchAIProvider).
+     * Creates a HYBRID pipeline using a specific AIProvider SPI implementation.
      */
     public static DecisionPipeline createHybridAiPipeline(AIProvider aiProvider) {
         return LogistiX.pipelineBuilder(DECISION_TYPE)
@@ -68,6 +71,29 @@ public final class DispatchDecisionPipelineFactory {
                 .step(new DriverDispatchConstraintStep())
                 .step(new DriverDispatchRuleStep())
                 .step(new DriverDispatchScoringStep())
+                .step(new DriverDispatchAIStep(aiProvider))
+                .step(new DriverDispatchRecommendationStep())
+                .build();
+    }
+
+    /**
+     * Creates a KNOWLEDGE-AWARE pipeline using default Mock AI and in-memory knowledge provider
+     * (Constraints -> Business Rules -> Scoring -> Knowledge Retrieval -> AI Advisor -> Recommendation).
+     */
+    public static DecisionPipeline createKnowledgeAwarePipeline() {
+        return createKnowledgeAwarePipeline(new MockDispatchAIProvider(), new InMemoryKnowledgeProvider());
+    }
+
+    /**
+     * Creates a KNOWLEDGE-AWARE pipeline using explicit AIProvider and KnowledgeProvider instances.
+     */
+    public static DecisionPipeline createKnowledgeAwarePipeline(AIProvider aiProvider, KnowledgeProvider knowledgeProvider) {
+        return LogistiX.pipelineBuilder(DECISION_TYPE)
+                .name("Knowledge-Aware Driver Dispatch Pipeline")
+                .step(new DriverDispatchConstraintStep())
+                .step(new DriverDispatchRuleStep())
+                .step(new DriverDispatchScoringStep())
+                .step(new DriverDispatchKnowledgeStep(knowledgeProvider))
                 .step(new DriverDispatchAIStep(aiProvider))
                 .step(new DriverDispatchRecommendationStep())
                 .build();

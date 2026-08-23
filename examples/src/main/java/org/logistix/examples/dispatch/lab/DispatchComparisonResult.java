@@ -3,6 +3,7 @@ package org.logistix.examples.dispatch.lab;
 import org.logistix.ai.dispatch.AITelemetry;
 import org.logistix.domain.decision.DecisionResult;
 import org.logistix.examples.dispatch.model.DispatchAssignment;
+import org.logistix.rag.knowledge.KnowledgeTelemetry;
 
 import java.time.Duration;
 import java.util.Collections;
@@ -10,7 +11,8 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Strongly typed side-by-side comparison result quantifying the differences between RULES_ONLY and HYBRID_AI runs.
+ * Strongly typed side-by-side comparison result quantifying the differences between RULES_ONLY and HYBRID_AI runs,
+ * including enterprise knowledge retrieval telemetry, citations, and grounded decision policy outcomes.
  */
 public record DispatchComparisonResult(
         DispatchScenario scenario,
@@ -36,13 +38,22 @@ public record DispatchComparisonResult(
         String aiInfluenceReason,
         String safetyStatus,
         boolean hardConstraintsSatisfied,
-        boolean fallbackTriggered
+        boolean fallbackTriggered,
+        String knowledgeProvider,
+        int knowledgeEvidenceCount,
+        List<String> knowledgeEvidenceIds,
+        String knowledgeStatus,
+        Duration knowledgeLatency
 ) {
     public DispatchComparisonResult {
         Objects.requireNonNull(scenario, "scenario must not be null");
         Objects.requireNonNull(rulesOnlyResult, "rulesOnlyResult must not be null");
         Objects.requireNonNull(hybridResult, "hybridResult must not be null");
         aiInsights = aiInsights != null ? List.copyOf(aiInsights) : Collections.emptyList();
+        knowledgeEvidenceIds = knowledgeEvidenceIds != null ? List.copyOf(knowledgeEvidenceIds) : Collections.emptyList();
+        knowledgeProvider = knowledgeProvider != null ? knowledgeProvider : "NONE";
+        knowledgeStatus = knowledgeStatus != null ? knowledgeStatus : "SKIPPED";
+        knowledgeLatency = knowledgeLatency != null ? knowledgeLatency : Duration.ZERO;
     }
 
     public static DispatchComparisonResult of(
@@ -65,12 +76,19 @@ public record DispatchComparisonResult(
         String providerType = telemetry != null ? telemetry.providerType() : "NONE";
         boolean fallback = telemetry != null && telemetry.fallbackTriggered();
 
+        KnowledgeTelemetry kTelemetry = (KnowledgeTelemetry) hybrid.recommendation().metadata().get("knowledgeTelemetry");
+        String kProvider = kTelemetry != null ? kTelemetry.providerName() : "NONE";
+        int kEvidenceCount = kTelemetry != null ? kTelemetry.retrievedCount() : 0;
+        List<String> kEvidenceIds = kTelemetry != null ? kTelemetry.evidenceDocumentIds() : Collections.emptyList();
+        String kStatus = kTelemetry != null ? kTelemetry.status() : "SKIPPED";
+        Duration kLatency = kTelemetry != null ? kTelemetry.retrievalLatency() : Duration.ZERO;
+
         boolean aiInfluenced = Boolean.TRUE.equals(hybrid.recommendation().metadata().get("aiInfluencedDecision"));
         String influenceReason = (String) hybrid.recommendation().metadata().getOrDefault("aiInfluenceReason",
                 changed ? "AI contextual risk signals shifted the deterministic selection policy." : "AI confirmed deterministic recommendation.");
 
         List<String> insights = hybrid.explanation() != null
-                ? hybrid.explanation().keyFactors().stream().filter(f -> f.startsWith("AI Context") || f.startsWith("AI Decision Policy")).toList()
+                ? hybrid.explanation().keyFactors().stream().filter(f -> f.startsWith("AI Context") || f.startsWith("AI Decision Policy") || f.startsWith("Knowledge Evidence")).toList()
                 : Collections.emptyList();
 
         double advConf = telemetry != null && telemetry.advisoryConfidence() != null ? telemetry.advisoryConfidence() : 0.0;
@@ -104,7 +122,12 @@ public record DispatchComparisonResult(
                 influenceReason,
                 safetyStatus,
                 hardSatisfied,
-                fallback
+                fallback,
+                kProvider,
+                kEvidenceCount,
+                kEvidenceIds,
+                kStatus,
+                kLatency
         );
     }
 }

@@ -12,6 +12,7 @@ import org.logistix.ai.dispatch.SpringAIDispatchAIProvider;
 import org.logistix.domain.decision.DecisionContext;
 import org.logistix.domain.fact.Fact;
 import org.logistix.domain.ports.AIProvider;
+import org.logistix.domain.ports.KnowledgeProvider.GroundingDocument;
 import org.logistix.domain.rule.RuleOutcome;
 import org.logistix.engine.steps.AIStep;
 import org.logistix.engine.steps.StepMetadata;
@@ -27,10 +28,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Production-grade AI pipeline step evaluating feasible dispatch candidates in a single batched LLM invocation.
- * Enforces typed telemetry, strict graceful fallback, advice validation, and zero score manipulation.
+ * Enforces typed telemetry, strict graceful fallback, advice validation, evidence citation verification, and zero score manipulation.
  */
 public class DriverDispatchAIStep implements AIStep {
 
@@ -83,6 +85,12 @@ public class DriverDispatchAIStep implements AIStep {
         String executionMode = context.getParameter("executionMode", String.class).orElse("HYBRID");
         String providerType = (aiProvider instanceof SpringAIDispatchAIProvider) ? "LIVE" : "MOCK";
 
+        List<GroundingDocument> knowledgeEvidence = context.getFactValue("knowledgeEvidence", List.class)
+                .orElse(Collections.emptyList());
+        Set<String> validEvidenceIds = knowledgeEvidence.stream()
+                .map(GroundingDocument::documentId)
+                .collect(Collectors.toSet());
+
         try {
             int countToEvaluate = Math.min(topN, rankedCandidates.size());
             List<CandidatePromptContext> promptCandidates = new ArrayList<>();
@@ -121,7 +129,8 @@ public class DriverDispatchAIStep implements AIStep {
                     shipment != null ? shipment.deliveryDeadline().toString() : "UNKNOWN",
                     weather,
                     executionMode,
-                    promptCandidates
+                    promptCandidates,
+                    knowledgeEvidence
             );
 
             DecisionContext requestContext = context.withFact(Fact.of("aiRequest", aiRequest));
@@ -161,6 +170,7 @@ public class DriverDispatchAIStep implements AIStep {
             Double primaryConfidence = 0.90;
             RiskLevel primaryRisk = RiskLevel.LOW;
             Set<String> processedCandidateIds = new HashSet<>();
+            List<String> validatedEvidenceCitations = new ArrayList<>();
 
             if (batchedOpt.isPresent() && !batchedOpt.get().candidateAdvices().isEmpty()) {
                 BatchedDispatchAIAdvice batched = batchedOpt.get();
@@ -177,8 +187,18 @@ public class DriverDispatchAIStep implements AIStep {
                         double validatedConfidence = Math.max(0.0, Math.min(1.0, adv.advisoryConfidence()));
                         RiskLevel validatedRisk = adv.riskLevel() != null ? adv.riskLevel() : RiskLevel.LOW;
 
-                        String narrative = String.format("[%s - Risk: %s, Conf: %.0f%%]: %s",
-                                aiProvider.getProviderName(), validatedRisk, validatedConfidence * 100.0, adv.reasoning());
+                        // Filter and validate evidence citations (reject phantom evidence IDs)
+                        List<String> validCitations = adv.knowledgeEvidenceUsed().stream()
+                                .filter(validEvidenceIds::contains)
+                                .toList();
+                        validatedEvidenceCitations.addAll(validCitations);
+
+                        String evidenceCitationStr = !validCitations.isEmpty()
+                                ? " (Grounded in: " + String.join(", ", validCitations) + ")"
+                                : "";
+
+                        String narrative = String.format("[%s - Risk: %s, Conf: %.0f%%%s]: %s",
+                                aiProvider.getProviderName(), validatedRisk, validatedConfidence * 100.0, evidenceCitationStr, adv.reasoning());
                         enrichedCandidates.add(c.withAiRiskAnalysis(narrative));
 
                         if (i == 0) {
@@ -195,11 +215,20 @@ public class DriverDispatchAIStep implements AIStep {
                     primaryConfidence = Math.max(0.0, Math.min(1.0, adv.advisoryConfidence()));
                     primaryRisk = adv.riskLevel() != null ? adv.riskLevel() : RiskLevel.LOW;
 
+                    List<String> validCitations = adv.knowledgeEvidenceUsed().stream()
+                            .filter(validEvidenceIds::contains)
+                            .toList();
+                    validatedEvidenceCitations.addAll(validCitations);
+
+                    String evidenceCitationStr = !validCitations.isEmpty()
+                            ? " (Grounded in: " + String.join(", ", validCitations) + ")"
+                            : "";
+
                     for (int i = 0; i < rankedCandidates.size(); i++) {
                         DispatchCandidate c = rankedCandidates.get(i);
                         if (i == 0) {
-                            String narrative = String.format("[%s - Risk: %s, Conf: %.0f%%]: %s",
-                                    aiProvider.getProviderName(), primaryRisk, primaryConfidence * 100.0, adv.reasoning());
+                            String narrative = String.format("[%s - Risk: %s, Conf: %.0f%%%s]: %s",
+                                    aiProvider.getProviderName(), primaryRisk, primaryConfidence * 100.0, evidenceCitationStr, adv.reasoning());
                             enrichedCandidates.add(c.withAiRiskAnalysis(narrative));
                         } else {
                             enrichedCandidates.add(c);
@@ -231,7 +260,8 @@ public class DriverDispatchAIStep implements AIStep {
                     .withFact(Fact.of("aiEnrichmentStatus", "SUCCESS"))
                     .withFact(Fact.of("aiProviderName", aiProvider.getProviderName()))
                     .withFact(Fact.of("aiAdvisoryConfidence", primaryConfidence))
-                    .withFact(Fact.of("aiRiskLevel", primaryRisk.name()));
+                    .withFact(Fact.of("aiRiskLevel", primaryRisk.name()))
+                    .withFact(Fact.of("aiEvidenceUsed", validatedEvidenceCitations));
 
             return StepResult.success(
                     updatedContext,

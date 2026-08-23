@@ -48,6 +48,11 @@
 
         <dependency>
             <groupId>org.logistix</groupId>
+            <artifactId>logistix-rag</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.logistix</groupId>
             <artifactId>logistix-simulation</artifactId>
         </dependency>
 

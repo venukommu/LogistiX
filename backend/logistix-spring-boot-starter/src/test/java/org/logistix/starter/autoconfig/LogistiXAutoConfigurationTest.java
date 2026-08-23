@@ -27,6 +27,10 @@ class LogistiXAutoConfigurationTest {
             AIProvider provider = context.getBean(AIProvider.class);
             assertThat(provider).isInstanceOf(MockDispatchAIProvider.class);
             assertThat(provider.getProviderName()).contains("Mock");
+
+            assertThat(context).hasSingleBean(org.logistix.domain.ports.KnowledgeProvider.class);
+            org.logistix.domain.ports.KnowledgeProvider kp = context.getBean(org.logistix.domain.ports.KnowledgeProvider.class);
+            assertThat(kp).isInstanceOf(org.logistix.rag.knowledge.InMemoryKnowledgeProvider.class);
         });
     }
 

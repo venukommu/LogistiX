@@ -99,25 +99,26 @@ String mermaid = LogistiX.visualizer().toMermaid(graph);
 ## 🚚 Golden Reference Capability: AI-Assisted Driver Dispatch
 
 LogistiX includes a production-grade **Commercial Driver Dispatch Golden Reference Capability** (`logistix-examples`) implementing our core architectural principle:
-> *"The AI can reason. LogistiX decides."*
+> *"The deterministic engine establishes what is feasible. Enterprise Knowledge provides evidence. AI contextual advisory interprets evidence. A deterministic policy evaluates the advisory. LogistiX retains authority over the final decision."*
 
 ### Architectural Invariants:
-1. **Hard Constraints First**: Prunes non-compliant drivers (HOS, weight/volume limits, endorsements, deadline) deterministically before scoring or AI involvement.
-2. **Deterministic Scoring Authority**: Multi-criteria weighted scoring (Deadhead proximity, ETA SLA buffer, driver rating, trip cost efficiency, business rules) retains sole mathematical authority over ranking.
-3. **Single-Call Batched AI Evaluation**: Evaluates top-N feasible candidate pairings in **exactly ONE batched Spring AI invocation** (`DispatchAIRequest`), optimizing latency and API costs.
-4. **Typed Telemetry & Fail-Safe Fallback**: Captures execution latency, invocation count (=1), prompt version (`DRIVER_DISPATCH_AI_PROMPT_V1`), provider type (`LIVE` vs `MOCK`), with automated fallback to deterministic ranking upon timeout.
+1. **Hard Constraints First**: Prunes non-compliant drivers (HOS, weight/volume limits, endorsements, deadline) deterministically before scoring, knowledge retrieval, or AI involvement.
+2. **Enterprise Knowledge Grounding**: Retrieves relevant operating procedures, compliance standards, and corridor guidelines (`KnowledgeProvider` SPI) with full provenance and document IDs (`DOC-WINTER-001`).
+3. **Single-Call Batched AI Evaluation**: Evaluates top-N feasible candidate pairings in **exactly ONE batched Spring AI invocation** (`DispatchAIRequest`), citing verified knowledge evidence IDs and rejecting hallucinated citations.
+4. **Deterministic Decision Authority**: Multi-criteria weighted scoring and deterministic policy retain sole authority over final ranking and assignments.
+5. **Typed Telemetry & Fail-Safe Fallback**: Independent `KnowledgeTelemetry` and `AITelemetry` track retrieval and LLM latencies with graceful fallback upon timeout or failure.
 
 ```bash
 # Run Golden Reference Demo & Benchmark
 mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" -f backend/pom.xml -pl :logistix-examples
 
-# Run Driver Dispatch Decision Lab (Side-by-Side RULES_ONLY vs HYBRID_AI Comparison)
+# Run Driver Dispatch Decision Lab (Side-by-Side Comparison across all 5 scenarios)
 mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" \
   -Dexec.args="--compare --scenario all" -f backend/pom.xml -pl :logistix-examples
 
-# Run AI Contextual Differentiation Scenario in JSON format
+# Run Knowledge-Aware Dispatch Scenario in JSON format
 mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" \
-  -Dexec.args="--compare --scenario ai-contextual-decision --format json" -f backend/pom.xml -pl :logistix-examples
+  -Dexec.args="--compare --scenario knowledge-aware-dispatch --format json" -f backend/pom.xml -pl :logistix-examples
 ```
 
 ---
@@ -154,7 +155,15 @@ flowchart TD
         PLAN["<b>ExecutionPlan</b><br/>• ExecutionStages &bull; ExecutionUnits &bull; ExecutionCursor"]
     end
 
-    subgraph Runtime ["5. Execution Engine (logistix-engine)"]
+    subgraph KnowledgeLayer ["5. Knowledge & Grounding (logistix-rag)"]
+        KP["<b>KnowledgeProvider SPI</b><br/>• InMemoryKnowledgeProvider &bull; KnowledgeTelemetry"]
+    end
+
+    subgraph AILayer ["6. AI Advisory (logistix-ai)"]
+        AI["<b>AIProvider SPI</b><br/>• SpringAI &bull; Single-Call Batched Inference &bull; AITelemetry"]
+    end
+
+    subgraph Runtime ["7. Execution Engine (logistix-engine)"]
         STATE["<b>DecisionState</b> (Facts, NodeOutputs, Errors)"]
         MEM["<b>DecisionMemory</b> (Working Memory & Recall)"]
         EXEC["<b>DecisionExecutor</b>"]
@@ -165,6 +174,9 @@ flowchart TD
     DM --> StrategyLayer
     StrategyLayer --> PLAN
     PLAN --> EXEC
+    EXEC --> KP
+    KP --> AI
+    AI --> STATE
     EXEC --> STATE
     EXEC --> MEM
     EXEC --> RES
@@ -182,7 +194,9 @@ flowchart TD
 | **Sprint 4** | Developer Experience | Fluent DSL (`LogistiX`), Annotations, Spring Boot Starter | ✅ Completed |
 | **Sprint 5** | Decision Intelligence | DecisionModel, DecisionGraph, Pluggable ExecutionStrategies | ✅ Completed |
 | **Sprint 6** | Framework Hardening | Module Consolidation, Stability Matrix, Constitution (RC2) | ✅ Completed |
-| **Sprint 7** | Dispatch Capability | Production AI-Assisted Driver Dispatching Implementation | ⏳ Upcoming |
+| **Sprint 7** | Golden Reference | Commercial Driver Dispatch Capability & Spring AI Integration | ✅ Completed |
+| **Sprint 8** | Decision Lab | Driver Dispatch Decision Lab (RULES_ONLY vs HYBRID_AI) | ✅ Completed |
+| **Sprint 9** | Knowledge Intelligence| Knowledge-Aware Decision Intelligence & Retrieval SPI | ✅ Completed |
 
 ---
 

@@ -238,12 +238,65 @@ public final class DispatchScenarios {
         );
     }
 
+    /**
+     * Scenario 5: Knowledge-Aware Dispatch (Grounded in Enterprise Policies).
+     * Demonstrates AI retrieving DOC-WINTER-001 (Winter Operations Policy) and grounding its advisory
+     * to favor the certified winter veteran with full policy traceability.
+     */
+    public static DispatchScenario scenario5KnowledgeAwareDispatch(Instant now) {
+        Shipment shipment = Shipment.builder()
+                .shipmentId(java.util.UUID.fromString("55555555-5555-5555-5555-555555555555"))
+                .origin(Coordinates.of(39.5296, -119.8138)) // Reno, NV
+                .destination(Coordinates.of(38.5816, -121.4944)) // Sacramento, CA (via Donner Pass)
+                .weightKg(15000.0)
+                .volumeM3(38.0)
+                .requiredCertifications(Set.of(Certification.HAZMAT, Certification.TWIC))
+                .deliveryDeadline(now.plus(Duration.ofHours(8)))
+                .priority(PriorityLevel.CRITICAL)
+                .destinationRegion("US-WEST")
+                .build();
+
+        Driver standardDriver = Driver.builder()
+                .name("Sam 'Speedy' Miller")
+                .currentLocation(Coordinates.of(39.5300, -119.8100))
+                .certifications(Set.of(Certification.HAZMAT, Certification.TWIC))
+                .tier(DriverTier.STANDARD)
+                .rating(4.5)
+                .historicalOnTimeRate(0.89)
+                .remainingHos(Duration.ofHours(8))
+                .build();
+
+        Driver mountainVeteran = Driver.builder()
+                .name("Elena 'Mountain' Rostova")
+                .currentLocation(Coordinates.of(39.3280, -120.1833))
+                .certifications(Set.of(Certification.HAZMAT, Certification.TWIC))
+                .tier(DriverTier.PLATINUM)
+                .rating(4.98)
+                .historicalOnTimeRate(0.99)
+                .remainingHos(Duration.ofHours(11))
+                .build();
+
+        return new DispatchScenario(
+                "knowledge-aware-dispatch",
+                "Scenario 5: Knowledge-Aware Grounded Dispatch",
+                "High-priority HazMat shipment across Donner Pass during blizzard. AI retrieves DOC-WINTER-001 policy guidelines, grounding its advisory to recommend Elena with verified enterprise policy compliance.",
+                shipment,
+                List.of(standardDriver, mountainVeteran),
+                "BLIZZARD_WARNING_DONNER_PASS",
+                "HIGH",
+                "Severe mountain blizzard with chain control inspections on I-80. Enterprise DOC-WINTER-001 mandates Tier-1 equipment readiness.",
+                now,
+                "RULES_ONLY selects Sam on proximity. KNOWLEDGE_AI retrieves DOC-WINTER-001, grounds advisory, and selects Elena under deterministic policy."
+        );
+    }
+
     public static List<DispatchScenario> allScenarios(Instant now) {
         return List.of(
                 scenario1AiConfirms(now),
                 scenario2AiAddsContext(now),
                 scenario3SafetyGuardrail(now),
-                scenario4AiContextualDecision(now)
+                scenario4AiContextualDecision(now),
+                scenario5KnowledgeAwareDispatch(now)
         );
     }
 

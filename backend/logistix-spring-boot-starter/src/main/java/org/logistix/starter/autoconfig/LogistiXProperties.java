@@ -18,6 +18,7 @@ public class LogistiXProperties {
     private boolean failFastOnRuleError = false;
     private boolean autoDiscovery = true;
     private AiProperties ai = new AiProperties();
+    private KnowledgeProperties knowledge = new KnowledgeProperties();
 
     public boolean isEnabled() {
         return enabled;
@@ -75,6 +76,14 @@ public class LogistiXProperties {
         this.ai = ai;
     }
 
+    public KnowledgeProperties getKnowledge() {
+        return knowledge;
+    }
+
+    public void setKnowledge(KnowledgeProperties knowledge) {
+        this.knowledge = knowledge;
+    }
+
     public static class AiProperties {
         private boolean enabled = true;
         private String provider = "mock"; // "mock", "spring-ai", "disabled"
@@ -96,5 +105,20 @@ public class LogistiXProperties {
 
         public boolean isFallbackToMock() { return fallbackToMock; }
         public void setFallbackToMock(boolean fallbackToMock) { this.fallbackToMock = fallbackToMock; }
+    }
+
+    public static class KnowledgeProperties {
+        private boolean enabled = true;
+        private String provider = "in-memory"; // "in-memory", "disabled"
+        private int topK = 3;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getProvider() { return provider; }
+        public void setProvider(String provider) { this.provider = provider; }
+
+        public int getTopK() { return topK; }
+        public void setTopK(int topK) { this.topK = Math.max(1, topK); }
     }
 }

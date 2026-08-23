@@ -24,23 +24,28 @@ public final class DispatchLabReporter {
     public static String formatScenarioSummary(List<DispatchComparisonResult> results) {
         StringBuilder sb = new StringBuilder();
         sb.append("\n");
-        sb.append("========================================================================================================\n");
-        sb.append("   LOGISTIX DRIVER DISPATCH DECISION LAB — COMPARISON SUMMARY TABLE\n");
-        sb.append("========================================================================================================\n");
-        sb.append(String.format("%-30s | %-16s | %-15s | %-12s | %-10s\n",
-                "Scenario ID", "Rec Changed?", "AI Influenced?", "AI Invocations", "Safety"));
-        sb.append("--------------------------------------------------------------------------------------------------------\n");
+        sb.append("=====================================================================================================================\n");
+        sb.append("   LOGISTIX DRIVER DISPATCH DECISION LAB — KNOWLEDGE & AI COMPARISON SUMMARY\n");
+        sb.append("=====================================================================================================================\n");
+        sb.append(String.format("%-28s | %-16s | %-15s | %-11s | %-18s | %-8s\n",
+                "Scenario ID", "Rec Changed?", "AI Influenced?", "AI Calls", "Knowledge Evidence", "Safety"));
+        sb.append("---------------------------------------------------------------------------------------------------------------------\n");
 
         for (DispatchComparisonResult r : results) {
-            sb.append(String.format("%-30s | %-16s | %-15s | %-14d | %-10s\n",
+            String knowledgeStr = r.knowledgeEvidenceCount() > 0
+                    ? String.format("%d docs (%s)", r.knowledgeEvidenceCount(), String.join(",", r.knowledgeEvidenceIds()))
+                    : "0 docs";
+
+            sb.append(String.format("%-28s | %-16s | %-15s | %-11d | %-18s | %-8s\n",
                     r.scenario().scenarioId(),
-                    r.recommendationChanged() ? "YES (" + r.hybridDriver() + ")" : "NO (" + r.rulesOnlyDriver() + ")",
+                    r.recommendationChanged() ? "YES (" + truncate(r.hybridDriver(), 10) + ")" : "NO (" + truncate(r.rulesOnlyDriver(), 10) + ")",
                     r.aiInfluencedDecision() ? "YES" : "NO",
                     r.aiInvocations(),
+                    truncate(knowledgeStr, 18),
                     r.hardConstraintsSatisfied() ? "PASS ✓" : "FAIL ✗"));
         }
 
-        sb.append("========================================================================================================\n");
+        sb.append("=====================================================================================================================\n");
         return sb.toString();
     }
 
@@ -59,7 +64,7 @@ public final class DispatchLabReporter {
         sb.append(String.format("║  Corridor    : %-86s║\n",
                 truncate(result.scenario().corridorNotes(), 86)));
         sb.append("╠══════════════════════════════════════════════╦═══════════════════════════════════════════════════════╣\n");
-        sb.append("║  WITHOUT AI (RULES ONLY)                     ║  WITH AI (HYBRID DECISION INTELLIGENCE)               ║\n");
+        sb.append("║  WITHOUT KNOWLEDGE / RULES ONLY              ║  WITH KNOWLEDGE & HYBRID AI DECISION INTELLIGENCE     ║\n");
         sb.append("╠══════════════════════════════════════════════╬═══════════════════════════════════════════════════════╣\n");
         sb.append(String.format("║  Driver       : %-28s ║  Driver       : %-37s ║\n",
                 truncate(result.rulesOnlyDriver(), 28), truncate(result.hybridDriver(), 37)));
@@ -69,6 +74,8 @@ public final class DispatchLabReporter {
                 result.rulesOnlyConfidence() * 100.0, result.hybridConfidence() * 100.0));
         sb.append(String.format("║  AI Calls     : %-28d ║  AI Calls     : %-37d ║\n",
                 0, result.aiInvocations()));
+        sb.append(String.format("║  Knowledge    : %-28s ║  Knowledge    : %-37s ║\n",
+                "0 documents", result.knowledgeEvidenceCount() + " docs (" + result.knowledgeLatency().toMillis() + " ms)"));
         sb.append(String.format("║  AI Latency   : %-28s ║  AI Latency   : %-37s ║\n",
                 "0 ms", result.aiLatency().toMillis() + " ms (" + result.aiProviderType() + ")"));
         sb.append(String.format("║  Evaluation   : %-28s ║  Advisory Conf: %-36.1f%% ║\n",
@@ -83,8 +90,12 @@ public final class DispatchLabReporter {
         sb.append(String.format("║  • Regulatory Safety      : %-73s║\n",
                 result.hardConstraintsSatisfied() ? "SAFE (All Hard Feasibility Constraints Satisfied ✓)" : "VIOLATION DETECTED ✗"));
 
+        if (!result.knowledgeEvidenceIds().isEmpty()) {
+            sb.append(String.format("║  • Knowledge Evidence     : %-73s║\n", String.join(", ", result.knowledgeEvidenceIds())));
+        }
+
         if (!result.aiInsights().isEmpty()) {
-            sb.append("║  • AI Contextual Insights :                                                                           ║\n");
+            sb.append("║  • Grounded Insights & Explainability:                                                               ║\n");
             for (String insight : result.aiInsights()) {
                 sb.append(String.format("║    - %-96s║\n", truncate(insight, 96)));
             }
@@ -111,7 +122,16 @@ public final class DispatchLabReporter {
             rulesOnly.put("confidence", result.rulesOnlyConfidence());
             rulesOnly.put("aiInvocationCount", 0);
             rulesOnly.put("aiLatencyMs", 0);
+            rulesOnly.put("knowledgeEvidenceCount", 0);
             root.put("rulesOnly", rulesOnly);
+
+            Map<String, Object> knowledge = new LinkedHashMap<>();
+            knowledge.put("provider", result.knowledgeProvider());
+            knowledge.put("status", result.knowledgeStatus());
+            knowledge.put("evidenceCount", result.knowledgeEvidenceCount());
+            knowledge.put("evidenceIds", result.knowledgeEvidenceIds());
+            knowledge.put("latencyMs", result.knowledgeLatency().toMillis());
+            root.put("knowledge", knowledge);
 
             Map<String, Object> hybrid = new LinkedHashMap<>();
             hybrid.put("recommendation", result.hybridDriver());

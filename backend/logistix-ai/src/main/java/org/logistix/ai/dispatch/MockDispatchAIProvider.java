@@ -2,6 +2,7 @@ package org.logistix.ai.dispatch;
 
 import org.logistix.domain.decision.DecisionContext;
 import org.logistix.domain.ports.AIProvider;
+import org.logistix.domain.ports.KnowledgeProvider.GroundingDocument;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -12,7 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Deterministic Mock AI Provider for offline testing, CI environments, and simulated failure testing.
- * Accurately models contextual risk differentiation for multi-candidate evaluation.
+ * Accurately models contextual risk differentiation and grounds reasoning in retrieved knowledge evidence.
  */
 public class MockDispatchAIProvider implements AIProvider {
 
@@ -59,22 +60,39 @@ public class MockDispatchAIProvider implements AIProvider {
         DispatchAIRequest request = context.getFactValue("aiRequest", DispatchAIRequest.class).orElse(null);
         List<DispatchAIAdvice> advices = new ArrayList<>();
 
+        List<String> availableEvidenceIds = (request != null && request.knowledgeEvidence() != null)
+                ? request.knowledgeEvidence().stream().map(GroundingDocument::documentId).toList()
+                : Collections.emptyList();
+
         if (request != null && !request.candidates().isEmpty()) {
             for (CandidatePromptContext c : request.candidates()) {
                 RiskLevel risk;
                 String reasoning;
                 List<String> warnings = Collections.emptyList();
+                List<String> evidenceUsed = new ArrayList<>();
 
                 if (weather.contains("BLIZZARD") || weather.contains("STORM")) {
                     if ("PLATINUM".equalsIgnoreCase(c.driverTier()) || c.driverRating() >= 4.9) {
                         risk = RiskLevel.LOW;
-                        reasoning = String.format("Mock AI Analysis: Driver '%s' has Platinum winter corridor qualifications and robust safety margin for %s.",
-                                c.driverName(), weather);
+                        if (availableEvidenceIds.contains("DOC-WINTER-001")) {
+                            evidenceUsed.add("DOC-WINTER-001");
+                            reasoning = String.format("Mock AI Analysis: Driver '%s' satisfies DOC-WINTER-001 mountain pass readiness with verified winter qualifications and 11h HOS buffer for %s.",
+                                    c.driverName(), weather);
+                        } else {
+                            reasoning = String.format("Mock AI Analysis: Driver '%s' has Platinum winter corridor qualifications and robust safety margin for %s.",
+                                    c.driverName(), weather);
+                        }
                     } else {
                         risk = RiskLevel.HIGH;
                         warnings = List.of("High blizzard delay risk on mountain corridor", "Standard equipment chain restrictions");
-                        reasoning = String.format("Mock AI Analysis: Driver '%s' has Standard equipment; high vulnerability to %s delay.",
-                                c.driverName(), weather);
+                        if (availableEvidenceIds.contains("DOC-WINTER-001")) {
+                            evidenceUsed.add("DOC-WINTER-001");
+                            reasoning = String.format("Mock AI Analysis: Driver '%s' violates DOC-WINTER-001 guidance (lacks Tier-1 winter equipment; chain inspection delay >180m expected during %s).",
+                                    c.driverName(), weather);
+                        } else {
+                            reasoning = String.format("Mock AI Analysis: Driver '%s' has Standard equipment; high vulnerability to %s delay.",
+                                    c.driverName(), weather);
+                        }
                     }
                 } else if (weather.contains("RAIN")) {
                     risk = RiskLevel.MEDIUM;
@@ -92,6 +110,7 @@ public class MockDispatchAIProvider implements AIProvider {
                         reasoning,
                         List.of("Weather: " + weather, "Tier: " + c.driverTier()),
                         warnings,
+                        evidenceUsed,
                         Instant.now()
                 ));
             }
@@ -105,6 +124,7 @@ public class MockDispatchAIProvider implements AIProvider {
                     "Mock AI reasoning: Evaluated operational corridor context.",
                     List.of("Weather Condition: " + weather),
                     fallbackRisk != RiskLevel.LOW ? List.of("Adverse weather slowdown expected") : Collections.emptyList(),
+                    Collections.emptyList(),
                     Instant.now()
             ));
         }

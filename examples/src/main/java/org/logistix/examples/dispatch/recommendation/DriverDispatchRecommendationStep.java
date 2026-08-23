@@ -5,6 +5,7 @@ import org.logistix.domain.decision.DecisionContext;
 import org.logistix.domain.explanation.Explanation;
 import org.logistix.domain.explanation.FeatureContribution;
 import org.logistix.domain.fact.Fact;
+import org.logistix.domain.ports.KnowledgeProvider.GroundingDocument;
 import org.logistix.domain.recommendation.Recommendation;
 import org.logistix.domain.score.Score;
 import org.logistix.engine.steps.RecommendationStep;
@@ -12,6 +13,7 @@ import org.logistix.engine.steps.StepMetadata;
 import org.logistix.engine.steps.StepResult;
 import org.logistix.examples.dispatch.model.DispatchAssignment;
 import org.logistix.examples.dispatch.model.DispatchCandidate;
+import org.logistix.rag.knowledge.KnowledgeTelemetry;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -23,7 +25,8 @@ import java.util.Map;
 
 /**
  * Deterministic recommendation and explainability synthesis step.
- * Integrates deterministic policy evaluation for AI qualitative risk signals among close feasible candidates.
+ * Integrates deterministic policy evaluation for AI qualitative risk signals among close feasible candidates,
+ * strictly separating deterministic factors, knowledge evidence, and AI contextual insights.
  */
 public class DriverDispatchRecommendationStep implements RecommendationStep {
 
@@ -108,7 +111,7 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
         DispatchCandidate best = selectedCandidate;
         Score bestScore = best.score();
 
-        // 1. Build Feature Contributions
+        // 1. Build Feature Contributions (Deterministic)
         List<FeatureContribution> contributions = new ArrayList<>();
         Map<String, Double> subScores = bestScore.subScores();
 
@@ -157,11 +160,19 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
                 String.format("Driver tier %s and operational policy outcomes", best.driver().tier())
         ));
 
-        // 2. Key Factors & AI telemetry
+        // 2. Key Factors: Deterministic Factors, Knowledge Evidence & AI Insights
         List<String> keyFactors = new ArrayList<>();
         keyFactors.add(String.format("Deterministic composite score: %.3f awarded to driver '%s'", bestScore.value(), best.driver().name()));
         keyFactors.add(String.format("Remaining HOS: %d hours (%s needed)", best.driver().remainingHos().toHours(), best.totalRequiredDrivingDuration().toHours() + "h"));
         keyFactors.add(String.format("Vehicle payload capacity: %.0f kg (Shipment: %.0f kg)", best.driver().vehicleWeightCapacityKg(), best.shipment().weightKg()));
+
+        // Knowledge Evidence
+        List<GroundingDocument> knowledgeEvidence = context.getFactValue("knowledgeEvidence", List.class)
+                .orElse(Collections.emptyList());
+        for (GroundingDocument doc : knowledgeEvidence) {
+            keyFactors.add(String.format("Knowledge Evidence [%s]: %s (Relevance: %.2f, Source: %s)",
+                    doc.documentId(), doc.title(), doc.relevanceScore(), doc.source()));
+        }
 
         if (aiInfluenced) {
             keyFactors.add(String.format("AI Decision Policy: %s", aiInfluenceReason));
@@ -218,6 +229,15 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
         metadata.put("aiInfluenceReason", aiInfluenceReason);
         metadata.put("initialDeterministicLeader", topCandidate.driver().name());
 
+        KnowledgeTelemetry knowledgeTelemetry = context.getFactValue("knowledgeTelemetry", KnowledgeTelemetry.class).orElse(null);
+        if (knowledgeTelemetry != null) {
+            metadata.put("knowledgeTelemetry", knowledgeTelemetry);
+            metadata.put("knowledgeProvider", knowledgeTelemetry.providerName());
+            metadata.put("knowledgeEvidenceCount", knowledgeTelemetry.retrievedCount());
+            metadata.put("knowledgeEvidenceIds", knowledgeTelemetry.evidenceDocumentIds());
+            metadata.put("knowledgeStatus", knowledgeTelemetry.status());
+        }
+
         if (aiTelemetry != null) {
             metadata.put("aiTelemetry", aiTelemetry);
             if (aiTelemetry.providerName() != null) metadata.put("aiProvider", aiTelemetry.providerName());
@@ -244,7 +264,8 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
                 updatedContext,
                 Duration.between(start, Instant.now()),
                 List.of(Fact.of("recommendation", recommendation), Fact.of("explanation", explanation)),
-                String.format("Assigned %s with composite score %.3f (AI Influenced: %s)", best.driver().name(), bestScore.value(), aiInfluenced)
+                String.format("Assigned %s with composite score %.3f (AI Influenced: %s, Knowledge Grounded: %s)",
+                        best.driver().name(), bestScore.value(), aiInfluenced, !knowledgeEvidence.isEmpty())
         );
     }
 }
