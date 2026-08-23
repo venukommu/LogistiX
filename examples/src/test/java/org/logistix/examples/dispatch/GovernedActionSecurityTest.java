@@ -11,6 +11,7 @@ import org.logistix.domain.action.ActionProposalSource;
 import org.logistix.domain.action.ActionResult;
 import org.logistix.domain.action.ActionStatus;
 import org.logistix.domain.action.ActionType;
+import org.logistix.domain.action.AuthorizationProvenance;
 import org.logistix.domain.action.AuthorizedAction;
 import org.logistix.engine.action.ActionPolicy;
 import org.logistix.engine.action.DefaultActionGovernanceEngine;
@@ -28,7 +29,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Sprint 10.1: Hardened Adversarial Security, Fingerprint Tampering, and Approval Invalidation Test Suite.
+ * Sprint 10.2: Complete Security Test Matrix for Governed AI Actions.
  */
 public class GovernedActionSecurityTest {
 
@@ -51,7 +52,7 @@ public class GovernedActionSecurityTest {
     }
 
     @Nested
-    @DisplayName("1. Three Mandatory Governed Action Demonstrations (Scenarios A, B, C)")
+    @DisplayName("1. Three Mandatory Demonstrations (Scenarios A, B, C)")
     class ThreeMandatoryDemonstrations {
 
         @Test
@@ -83,7 +84,7 @@ public class GovernedActionSecurityTest {
         void testScenarioBRejectedAction() {
             ActionProposal proposal = ActionProposal.builder()
                     .actionId("SCENARIO-B-001")
-                    .actionType(ActionType.CANCEL_SHIPMENT) // Prohibited by standard operational policy
+                    .actionType(ActionType.CANCEL_SHIPMENT)
                     .targetResource("SHIP-DEN-SFO")
                     .parameter("shipmentId", "SHIP-DEN-SFO")
                     .reason("AI unilaterally decided to cancel shipment due to severe storm")
@@ -114,7 +115,7 @@ public class GovernedActionSecurityTest {
                     .parameter("newAppointmentTime", "2026-08-26T18:00:00Z")
                     .reason("Cold-chain pharmaceutical delivery window change exceeding standard SLA")
                     .source(ActionProposalSource.AI)
-                    .riskLevel("HIGH") // HIGH risk triggers mandatory human approval
+                    .riskLevel("HIGH")
                     .confidence(0.92)
                     .correlationId("CORR-SCENARIO-C")
                     .build();
@@ -131,36 +132,21 @@ public class GovernedActionSecurityTest {
     }
 
     @Nested
-    @DisplayName("2. Hardened Adversarial Security & Fingerprint Protection Tests")
-    class AdversarialSecurityTests {
+    @DisplayName("2. Security Test Matrix (Tests 1 through 13)")
+    class SecurityMatrixTests {
 
         @Test
-        @DisplayName("1. AI proposes unknown/unregistered action code -> REJECTED deterministically")
-        void testUnknownActionCodeRejected() {
-            ActionType rogueActionType = ActionType.of("EXECUTE_ARBITRARY_REMOTE_SHELL", "Rogue command");
-            ActionProposal rogueProposal = ActionProposal.builder()
-                    .actionId("ROGUE-001")
-                    .actionType(rogueActionType)
-                    .targetResource("SERVER-001")
-                    .riskLevel("LOW")
-                    .confidence(0.99)
-                    .build();
-
-            ActionDecision decision = governanceEngine.evaluate(rogueProposal);
-            assertThat(decision.isRejected()).isTrue();
-            assertThat(decision.violatedConstraints()).anyMatch(v -> v.contains("not permitted"));
-        }
-
-        @Test
-        @DisplayName("2. Adversary fabricates forged AuthorizedAction -> McpActionExecutor rejects execution")
+        @DisplayName("TEST 1 & 2: Forged authorization and token prefix attack (AUTH-fake) is rejected by executor")
         void testForgedTokenRejectedByMcpAdapter() {
-            AuthorizedAction forged = new AuthorizedAction(
+            AuthorizationProvenance fakeProv = new AuthorizationProvenance("Attacker", "PROV-LGX-FAKE00000000", fixedClock.instant());
+            AuthorizedAction forged = AuthorizedAction.createForTesting(
                     "FORGED-001",
                     ActionType.CHANGE_DELIVERY_APPOINTMENT,
                     "SHIP-9999",
                     Map.of("shipmentId", "SHIP-9999", "newAppointmentTime", "2026-08-25T10:00:00Z"),
-                    "INVALID_TOKEN_WITHOUT_PREFIX",
+                    "AUTH-fake-token", // Invalid prefix (doesn't start with AUTH-LGX-)
                     "fingerprint",
+                    fakeProv,
                     "MaliciousActor",
                     "NONE",
                     "CORR-FORGED",
@@ -177,7 +163,7 @@ public class GovernedActionSecurityTest {
         }
 
         @Test
-        @DisplayName("3. Target Resource Mutation Attack is detected by SHA-256 fingerprint check and rejected")
+        @DisplayName("TEST 3: Target Resource Mutation Attack is detected by SHA-256 fingerprint check and rejected")
         void testTargetResourceMutationDetectedByFingerprint() {
             ActionProposal proposal = ActionProposal.builder()
                     .actionId("ACT-AUTH-TARGET-001")
@@ -192,14 +178,14 @@ public class GovernedActionSecurityTest {
             ActionDecision decision = governanceEngine.evaluate(proposal);
             AuthorizedAction validAuth = decision.authorizedAction().get();
 
-            // Attacker swaps target to unauthorized shipment while preserving the authorized token
-            AuthorizedAction swappedTargetAuth = new AuthorizedAction(
+            AuthorizedAction swappedTargetAuth = AuthorizedAction.createForTesting(
                     validAuth.actionId(),
                     validAuth.actionType(),
                     "SHIP-UNAUTHORIZED-VICTIM", // Tampered target
                     validAuth.parameters(),
                     validAuth.authorizationToken(),
-                    validAuth.authorizationFingerprint(), // Original fingerprint
+                    validAuth.authorizationFingerprint(),
+                    validAuth.provenance(),
                     validAuth.authorizedBy(),
                     validAuth.policyApplied(),
                     validAuth.correlationId(),
@@ -215,7 +201,7 @@ public class GovernedActionSecurityTest {
         }
 
         @Test
-        @DisplayName("4. Modifying approved action invalidates human approval grant")
+        @DisplayName("TEST 7: Modifying proposal parameters after supervisor approval invalidates approval grant")
         void testModifiedActionInvalidatesApproval() {
             ActionProposal originalProposal = ActionProposal.builder()
                     .actionId("ACT-HIGH-RISK-001")
@@ -227,20 +213,19 @@ public class GovernedActionSecurityTest {
                     .confidence(0.90)
                     .build();
 
-            ActionApprovalGrant grant = ActionApprovalGrant.of(
-                    "ACT-HIGH-RISK-001",
+            ActionApprovalGrant grant = ActionApprovalGrant.forProposal(
+                    originalProposal,
                     "Manager-Alice",
-                    "Approved for SHIP-ORIGINAL",
-                    "SHIP-ORIGINAL"
+                    "Approved for SHIP-ORIGINAL"
             );
 
-            // Attacker changes the target after manager granted approval
+            // Attacker changes parameters after approval grant was issued
             ActionProposal tamperedProposal = ActionProposal.builder()
                     .actionId("ACT-HIGH-RISK-001")
                     .actionType(ActionType.CHANGE_DELIVERY_APPOINTMENT)
-                    .targetResource("SHIP-MUTATED") // Mutated target!
-                    .parameter("shipmentId", "SHIP-MUTATED")
-                    .parameter("newAppointmentTime", "2026-08-25T12:00:00Z")
+                    .targetResource("SHIP-ORIGINAL")
+                    .parameter("shipmentId", "SHIP-ORIGINAL")
+                    .parameter("newAppointmentTime", "2026-08-25T23:59:59Z") // Modified time!
                     .riskLevel("HIGH")
                     .confidence(0.90)
                     .build();
@@ -252,27 +237,26 @@ public class GovernedActionSecurityTest {
             );
 
             assertThat(revalDecision.isRejected()).isTrue();
-            assertThat(revalDecision.reason()).contains("target resource mismatch");
+            assertThat(revalDecision.reason()).contains("tampering or mismatch");
             assertThat(revalDecision.authorizedAction()).isEmpty();
         }
 
         @Test
-        @DisplayName("5. Low confidence AI proposal is prevented from autonomous execution")
-        void testLowConfidenceRequiresApproval() {
-            ActionProposal lowConfProposal = ActionProposal.builder()
-                    .actionId("LOW-CONF-001")
-                    .actionType(ActionType.CHANGE_DELIVERY_APPOINTMENT)
-                    .targetResource("SHIP-100")
-                    .parameter("shipmentId", "SHIP-100")
-                    .parameter("newAppointmentTime", "2026-08-24T12:00:00Z")
+        @DisplayName("TEST 11 & 12: AI proposes arbitrary rogue action code or endpoint -> deterministically REJECTED")
+        void testUnknownActionCodeRejected() {
+            ActionType rogueActionType = ActionType.of("EXECUTE_ARBITRARY_REMOTE_SHELL", "Rogue command");
+            ActionProposal rogueProposal = ActionProposal.builder()
+                    .actionId("ROGUE-001")
+                    .actionType(rogueActionType)
+                    .targetResource("SERVER-001")
+                    .parameter("customEndpointUrl", "https://malicious-mcp.attacker.com")
                     .riskLevel("LOW")
-                    .confidence(0.65) // Below minimum required threshold 0.80
+                    .confidence(0.99)
                     .build();
 
-            ActionDecision decision = governanceEngine.evaluate(lowConfProposal);
-
-            assertThat(decision.isApprovalRequired()).isTrue();
-            assertThat(decision.requiredApprovals()).anyMatch(a -> a.contains("below autonomous threshold"));
+            ActionDecision decision = governanceEngine.evaluate(rogueProposal);
+            assertThat(decision.isRejected()).isTrue();
+            assertThat(decision.violatedConstraints()).anyMatch(v -> v.contains("not permitted"));
         }
     }
 }

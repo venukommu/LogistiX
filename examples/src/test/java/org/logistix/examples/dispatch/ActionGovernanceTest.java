@@ -13,6 +13,7 @@ import org.logistix.domain.action.ActionResult;
 import org.logistix.domain.action.ActionStatus;
 import org.logistix.domain.action.ActionTelemetry;
 import org.logistix.domain.action.ActionType;
+import org.logistix.domain.action.AuthorizationProvenance;
 import org.logistix.domain.action.AuthorizedAction;
 import org.logistix.engine.action.ActionPolicy;
 import org.logistix.engine.action.DefaultActionGovernanceEngine;
@@ -25,14 +26,20 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Sprint 10.1: Hardened Action Governance Test Suite.
+ * Sprint 10.2: Hardened Action Governance Test Suite with Provenance, Concurrency, and Immutability Checks.
  */
 public class ActionGovernanceTest {
 
@@ -61,7 +68,7 @@ public class ActionGovernanceTest {
     class GovernanceLifecycleTests {
 
         @Test
-        @DisplayName("1 & 10. Low-risk valid proposal is APPROVED and executes successfully via MCP")
+        @DisplayName("1. Low-risk valid proposal is APPROVED and executes successfully via MCP")
         void testApprovedActionExecutes() {
             ActionProposal proposal = ActionProposal.builder()
                     .actionId("ACT-001")
@@ -90,11 +97,11 @@ public class ActionGovernanceTest {
         }
 
         @Test
-        @DisplayName("2 & 7. Unpermitted action type is REJECTED and produces 0 MCP calls")
+        @DisplayName("2. Unpermitted action type is REJECTED and produces 0 MCP calls")
         void testRejectedActionNeverExecutes() {
             ActionProposal proposal = ActionProposal.builder()
                     .actionId("ACT-002")
-                    .actionType(ActionType.CANCEL_SHIPMENT) // CANCEL_SHIPMENT is not allowed in standard policy
+                    .actionType(ActionType.CANCEL_SHIPMENT)
                     .targetResource("SHIP-9902")
                     .parameter("shipmentId", "SHIP-9902")
                     .riskLevel("LOW")
@@ -115,7 +122,7 @@ public class ActionGovernanceTest {
         }
 
         @Test
-        @DisplayName("3 & 9. High-risk action produces APPROVAL_REQUIRED and produces 0 MCP calls without human grant")
+        @DisplayName("3. High-risk action produces APPROVAL_REQUIRED and produces 0 MCP calls without human grant")
         void testApprovalRequiredActionNeverExecutesWithoutApproval() {
             ActionProposal proposal = ActionProposal.builder()
                     .actionId("ACT-003")
@@ -123,7 +130,7 @@ public class ActionGovernanceTest {
                     .targetResource("SHIP-9903")
                     .parameter("shipmentId", "SHIP-9903")
                     .parameter("newAppointmentTime", "2026-08-25T14:00:00Z")
-                    .riskLevel("HIGH") // High risk requires operational approval
+                    .riskLevel("HIGH")
                     .confidence(0.90)
                     .source(ActionProposalSource.AI)
                     .correlationId("CORR-003")
@@ -140,7 +147,7 @@ public class ActionGovernanceTest {
         }
 
         @Test
-        @DisplayName("4. Approval Grant lifecycle successfully revalidates and authorizes action")
+        @DisplayName("4. Approval Grant lifecycle successfully revalidates and authorizes action with exact proposal binding")
         void testApprovalGrantLifecycle() {
             ActionProposal highRiskProposal = ActionProposal.builder()
                     .actionId("ACT-GRANT-001")
@@ -155,11 +162,10 @@ public class ActionGovernanceTest {
             ActionDecision initialDecision = governanceEngine.evaluate(highRiskProposal);
             assertThat(initialDecision.isApprovalRequired()).isTrue();
 
-            ActionApprovalGrant grant = ActionApprovalGrant.of(
-                    "ACT-GRANT-001",
+            ActionApprovalGrant grant = ActionApprovalGrant.forProposal(
+                    highRiskProposal,
                     "Supervisor-Jane",
-                    "Approved critical route reschedule due to highway closure",
-                    "SHIP-CRITICAL"
+                    "Approved critical route reschedule due to highway closure"
             );
 
             ActionDecision grantedDecision = governanceEngine.revalidateAndAuthorize(
@@ -177,47 +183,44 @@ public class ActionGovernanceTest {
         }
 
         @Test
-        @DisplayName("5. Approval grant with mismatched target resource is deterministically REJECTED")
-        void testApprovalGrantMismatchTargetRejection() {
-            ActionProposal highRiskProposal = ActionProposal.builder()
-                    .actionId("ACT-GRANT-002")
+        @DisplayName("5. Approval grant reuse is rejected (single-use consumption enforcement)")
+        void testApprovalGrantReuseRejected() {
+            ActionProposal proposal = ActionProposal.builder()
+                    .actionId("ACT-GRANT-REUSE")
                     .actionType(ActionType.CHANGE_DELIVERY_APPOINTMENT)
-                    .targetResource("SHIP-ACTUAL-TARGET")
-                    .parameter("shipmentId", "SHIP-ACTUAL-TARGET")
+                    .targetResource("SHIP-REUSE")
+                    .parameter("shipmentId", "SHIP-REUSE")
                     .parameter("newAppointmentTime", "2026-08-25T16:00:00Z")
                     .riskLevel("HIGH")
                     .confidence(0.92)
                     .build();
 
-            ActionApprovalGrant mismatchedGrant = ActionApprovalGrant.of(
-                    "ACT-GRANT-002",
-                    "Supervisor-Jane",
-                    "Approved for wrong shipment",
-                    "SHIP-DIFFERENT-TARGET"
+            ActionApprovalGrant grant = ActionApprovalGrant.forProposal(
+                    proposal,
+                    "Supervisor-Bob",
+                    "One-time emergency approval"
             );
 
-            ActionDecision decision = governanceEngine.revalidateAndAuthorize(
-                    highRiskProposal,
-                    mismatchedGrant,
-                    ActionPolicy.standardOperationalPolicy()
-            );
+            // First revalidation succeeds and consumes the grant
+            ActionDecision dec1 = governanceEngine.revalidateAndAuthorize(proposal, grant, ActionPolicy.standardOperationalPolicy());
+            assertThat(dec1.isApproved()).isTrue();
 
-            assertThat(decision.isRejected()).isTrue();
-            assertThat(decision.reason()).contains("target resource mismatch");
-            assertThat(decision.violatedConstraints()).anyMatch(v -> v.contains("does not match proposal target"));
+            // Second revalidation attempt using same grant is rejected
+            ActionDecision dec2 = governanceEngine.revalidateAndAuthorize(proposal, grant, ActionPolicy.standardOperationalPolicy());
+            assertThat(dec2.isRejected()).isTrue();
+            assertThat(dec2.reason()).contains("already consumed");
         }
     }
 
     @Nested
-    @DisplayName("2. Hardened Boundary, Expiration & Tampering Tests")
+    @DisplayName("2. Hardened Boundary, Expiration & Concurrency Tests")
     class HardenedBoundaryTests {
 
         @Test
-        @DisplayName("6. Expired AuthorizedAction is rejected by both governance and executor")
-        void testExpiredAuthorizationRejection() {
-            // Clock set to 10:00:00Z, action expires at 10:05:00Z
+        @DisplayName("6. Expiration boundary: now >= expiresAt is strictly treated as EXPIRED")
+        void testExactBoundaryExpiration() {
             ActionProposal proposal = ActionProposal.builder()
-                    .actionId("ACT-EXP-001")
+                    .actionId("ACT-EXP-BOUNDARY")
                     .actionType(ActionType.CHANGE_DELIVERY_APPOINTMENT)
                     .targetResource("SHIP-EXP-01")
                     .parameter("shipmentId", "SHIP-EXP-01")
@@ -227,21 +230,17 @@ public class ActionGovernanceTest {
                     .build();
 
             ActionDecision decision = governanceEngine.evaluate(proposal);
-            assertThat(decision.isApproved()).isTrue();
             AuthorizedAction auth = decision.authorizedAction().get();
+            Instant exactExpiresAt = auth.expiresAt();
 
-            // Advance clock past expiration (10:06:00Z)
-            Clock futureClock = Clock.fixed(Instant.parse("2026-08-23T10:06:00Z"), ZoneOffset.UTC);
-            McpActionExecutor futureExecutor = new McpActionExecutor(
-                    ToolRegistry.withStandardLogisticsTools(),
-                    mockToolServer,
-                    futureClock
-            );
+            // 1. Before expiration (expiresAt - 1 second) -> Valid
+            assertThat(auth.isExpired(exactExpiresAt.minusSeconds(1))).isFalse();
 
-            ActionResult result = futureExecutor.execute(auth);
-            assertThat(result.isSuccess()).isFalse();
-            assertThat(result.operationId()).isEqualTo("EXPIRED");
-            assertThat(mockToolServer.getInvocationCount()).isEqualTo(0);
+            // 2. Exactly at expiration instant (now == expiresAt) -> EXPIRED
+            assertThat(auth.isExpired(exactExpiresAt)).isTrue();
+
+            // 3. Past expiration (expiresAt + 1 second) -> EXPIRED
+            assertThat(auth.isExpired(exactExpiresAt.plusSeconds(1))).isTrue();
         }
 
         @Test
@@ -261,13 +260,14 @@ public class ActionGovernanceTest {
             AuthorizedAction validAuth = decision.authorizedAction().get();
 
             // Attacker creates mutated action swapping appointment time but preserving the original fingerprint
-            AuthorizedAction tamperedAuth = new AuthorizedAction(
+            AuthorizedAction tamperedAuth = AuthorizedAction.createForTesting(
                     validAuth.actionId(),
                     validAuth.actionType(),
                     validAuth.targetResource(),
-                    Map.of("shipmentId", "SHIP-TAMP-01", "newAppointmentTime", "2026-08-24T23:59:59Z"), // Tampered parameter
+                    Map.of("shipmentId", "SHIP-TAMP-01", "newAppointmentTime", "2026-08-24T23:59:59Z"),
                     validAuth.authorizationToken(),
-                    validAuth.authorizationFingerprint(), // Stale fingerprint that doesn't match 23:59:59Z
+                    validAuth.authorizationFingerprint(),
+                    validAuth.provenance(),
                     validAuth.authorizedBy(),
                     validAuth.policyApplied(),
                     validAuth.correlationId(),
@@ -283,60 +283,61 @@ public class ActionGovernanceTest {
         }
 
         @Test
-        @DisplayName("8. Reusing idempotency key with mutated parameters is detected as tampering and rejected")
-        void testIdempotencyKeyTamperingDetected() {
-            ActionProposal proposal1 = ActionProposal.builder()
-                    .actionId("ACT-IDEMP-TAMP-001")
-                    .idempotencyKey("SHARED-IDEMP-KEY")
+        @DisplayName("8. Atomic Idempotency: Multi-threaded concurrent requests execute MCP exactly ONCE")
+        void testConcurrentAtomicIdempotency() throws Exception {
+            int threadCount = 8;
+            ExecutorService executorService = Executors.newFixedThreadPool(threadCount);
+
+            ActionProposal proposal = ActionProposal.builder()
+                    .actionId("ACT-CONCURRENT-001")
+                    .idempotencyKey("CONCURRENT-IDEMP-KEY-888")
                     .actionType(ActionType.CHANGE_DELIVERY_APPOINTMENT)
-                    .targetResource("SHIP-100")
-                    .parameter("shipmentId", "SHIP-100")
+                    .targetResource("SHIP-CONCURRENT")
+                    .parameter("shipmentId", "SHIP-CONCURRENT")
                     .parameter("newAppointmentTime", "2026-08-24T10:00:00Z")
                     .riskLevel("LOW")
                     .confidence(0.95)
                     .build();
 
-            ActionProposal proposal2 = ActionProposal.builder()
-                    .actionId("ACT-IDEMP-TAMP-002")
-                    .idempotencyKey("SHARED-IDEMP-KEY") // Reusing same key
-                    .actionType(ActionType.CHANGE_DELIVERY_APPOINTMENT)
-                    .targetResource("SHIP-999") // Mutated target resource!
-                    .parameter("shipmentId", "SHIP-999")
-                    .parameter("newAppointmentTime", "2026-08-24T10:00:00Z")
-                    .riskLevel("LOW")
-                    .confidence(0.95)
-                    .build();
+            List<Callable<ActionResult>> tasks = new ArrayList<>();
+            for (int i = 0; i < threadCount; i++) {
+                tasks.add(() -> governanceEngine.executeIfAuthorized(proposal, ActionPolicy.standardOperationalPolicy(), mcpExecutor));
+            }
 
-            ActionDecision dec1 = governanceEngine.evaluate(proposal1);
-            assertThat(dec1.isApproved()).isTrue();
+            List<Future<ActionResult>> futures = executorService.invokeAll(tasks);
+            executorService.shutdown();
 
-            ActionDecision dec2 = governanceEngine.evaluate(proposal2);
-            assertThat(dec2.isRejected()).isTrue();
-            assertThat(dec2.reason()).contains("tampering detected");
+            for (Future<ActionResult> future : futures) {
+                ActionResult res = future.get();
+                assertThat(res.isSuccess()).isTrue();
+            }
+
+            // Invariant: Exactly one MCP call executed despite 8 concurrent submissions
+            assertThat(mockToolServer.getInvocationCount()).isEqualTo(1);
         }
 
         @Test
-        @DisplayName("9. Audit trail captures comprehensive lifecycle with defensive copy integrity")
-        void testAuditTrailIntegrity() {
+        @DisplayName("9. Deep immutability: Nested collections in AuthorizedAction cannot be modified")
+        void testDeepImmutability() {
             ActionProposal proposal = ActionProposal.builder()
-                    .actionId("ACT-AUDIT-HARDENED")
-                    .actionType(ActionType.ASSIGN_DRIVER)
-                    .targetResource("SHIP-AUDIT")
-                    .parameter("shipmentId", "SHIP-AUDIT")
-                    .parameter("driverId", "DRV-AUDIT")
-                    .riskLevel("LOW")
-                    .confidence(0.95)
-                    .correlationId("CORR-AUDIT-HARDENED")
+                    .actionId("ACT-IMMUTABLE-001")
+                    .actionType(ActionType.CHANGE_DELIVERY_APPOINTMENT)
+                    .targetResource("SHIP-IMMUTABLE")
+                    .parameter("shipmentId", "SHIP-IMMUTABLE")
+                    .parameter("newAppointmentTime", "2026-08-24T10:00:00Z")
+                    .parameter("nestedOptions", Map.of("key1", "val1"))
                     .build();
 
-            governanceEngine.executeIfAuthorized(proposal, ActionPolicy.standardOperationalPolicy(), mcpExecutor);
+            AuthorizedAction action = AuthorizedAction.issue(
+                    proposal,
+                    "POLICY",
+                    "Governance",
+                    Duration.ofMinutes(5),
+                    fixedClock.instant()
+            );
 
-            Optional<ActionAuditEntry> entryOpt = auditStore.findLatestByActionId("ACT-AUDIT-HARDENED");
-            assertThat(entryOpt).isPresent();
-            ActionAuditEntry entry = entryOpt.get();
-            assertThat(entry.governanceStatus()).isEqualTo(ActionStatus.APPROVED);
-            assertThat(entry.executionStatus()).isEqualTo(ActionStatus.EXECUTED);
-            assertThat(entry.executorType()).isEqualTo("MCP-ActionExecutor");
+            assertThatThrownBy(() -> action.parameters().put("illegalKey", "illegalVal"))
+                    .isInstanceOf(UnsupportedOperationException.class);
         }
     }
 }

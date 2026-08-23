@@ -18,10 +18,11 @@ import java.util.Optional;
  *
  * Implements the outbound technology-neutral ActionExecutor port with hardened security checks:
  * 1. Accepts ONLY an AuthorizedAction that has passed deterministic LogistiX governance.
- * 2. Enforces cryptographic SHA-256 fingerprint verification (tamper-evident).
- * 3. Enforces authorization TTL expiration validity.
- * 4. Resolves tools ONLY from the controlled ToolRegistry, prohibiting arbitrary tool execution.
- * 5. Strictly validates parameters against tool schemas.
+ * 2. Enforces reference AuthorizationProvenance validation (guaranteeing issuer provenance).
+ * 3. Enforces cryptographic SHA-256 fingerprint verification (tamper-evident integrity).
+ * 4. Enforces exact-boundary authorization TTL expiration validity (now >= expiresAt).
+ * 5. Resolves tools ONLY from the controlled, frozen ToolRegistry, prohibiting arbitrary tool execution.
+ * 6. Strictly validates parameters against tool schemas.
  */
 public class McpActionExecutor implements ActionExecutor {
 
@@ -59,18 +60,19 @@ public class McpActionExecutor implements ActionExecutor {
     public ActionResult execute(AuthorizedAction action) {
         Objects.requireNonNull(action, "AuthorizedAction must not be null");
 
-        // 1. Authorization Token Invariant Check
-        if (action.authorizationToken() == null || !action.authorizationToken().startsWith("AUTH-")) {
+        // 1. Authorization Provenance & Token Invariant Check
+        if (action.provenance() == null || !action.provenance().isValid() ||
+            action.authorizationToken() == null || !action.authorizationToken().startsWith("AUTH-LGX-")) {
             return ActionResult.failure(
                     action.actionId(),
-                    "AUTH-ERR",
-                    "Missing or invalid LogistiX authorization token on action",
-                    "Security Violation: Attempted to execute action without valid LogistiX authorization token",
+                    "AUTH-PROVENANCE-ERR",
+                    "Missing or invalid LogistiX authorization provenance token",
+                    "Security Violation: Attempted to execute action without valid LogistiX authorization provenance",
                     Duration.ZERO
             );
         }
 
-        // 2. Authorization Expiration Check
+        // 2. Authorization Expiration Check (Exact boundary: now >= expiresAt)
         if (action.isExpired(clock)) {
             return ActionResult.failure(
                     action.actionId(),
@@ -92,7 +94,7 @@ public class McpActionExecutor implements ActionExecutor {
             );
         }
 
-        // 4. Resolve Allowed MCP Tool from Registry
+        // 4. Resolve Allowed MCP Tool from Frozen Registry
         Optional<McpToolDefinition> toolOpt = toolRegistry.findToolByActionType(action.actionType());
         if (toolOpt.isEmpty()) {
             return ActionResult.failure(

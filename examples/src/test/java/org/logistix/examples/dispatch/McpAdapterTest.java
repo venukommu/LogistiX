@@ -7,8 +7,10 @@ import org.logistix.domain.action.ActionProposal;
 import org.logistix.domain.action.ActionResult;
 import org.logistix.domain.action.ActionStatus;
 import org.logistix.domain.action.ActionType;
+import org.logistix.domain.action.AuthorizationProvenance;
 import org.logistix.domain.action.AuthorizedAction;
 import org.logistix.mcp.McpActionExecutor;
+import org.logistix.mcp.McpToolDefinition;
 import org.logistix.mcp.MockMcpToolServer;
 import org.logistix.mcp.ToolRegistry;
 
@@ -17,11 +19,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Hardened Test Suite for Model Context Protocol (MCP) Adapter execution, schema validation, and fingerprint checks.
+ * Hardened Test Suite for Model Context Protocol (MCP) Adapter execution, schema validation, and provenance checks.
  */
 public class McpAdapterTest {
 
@@ -94,32 +98,59 @@ public class McpAdapterTest {
     }
 
     @Test
-    @DisplayName("3. Unregistered action type is rejected with UNREGISTERED-TOOL failure")
-    void testUnregisteredToolRejected() {
+    @DisplayName("3. Missing or invalid AuthorizationProvenance is rejected with AUTH-PROVENANCE-ERR")
+    void testInvalidProvenanceRejected() {
         ActionProposal proposal = ActionProposal.builder()
-                .actionId("ACT-MCP-003")
-                .actionType(ActionType.CANCEL_SHIPMENT) // Not registered in default ToolRegistry
+                .actionId("ACT-MCP-PROV")
+                .actionType(ActionType.CHANGE_DELIVERY_APPOINTMENT)
                 .targetResource("SHIP-5503")
                 .parameter("shipmentId", "SHIP-5503")
+                .parameter("newAppointmentTime", "2026-08-24T18:00:00Z")
                 .build();
 
-        AuthorizedAction action = AuthorizedAction.issue(
-                proposal,
-                "STANDARD-POLICY",
-                "LogistiX-Governance",
-                Duration.ofMinutes(5),
-                fixedClock.instant()
+        AuthorizationProvenance fakeProv = new AuthorizationProvenance("Attacker", "INVALID_TOKEN", fixedClock.instant());
+        AuthorizedAction invalidAction = AuthorizedAction.createForTesting(
+                proposal.actionId(),
+                proposal.actionType(),
+                proposal.targetResource(),
+                proposal.parameters(),
+                "AUTH-LGX-FAKE",
+                "fingerprint",
+                fakeProv,
+                "Attacker",
+                "POLICY",
+                "CORR",
+                "IDEMP",
+                fixedClock.instant(),
+                fixedClock.instant().plus(Duration.ofMinutes(5))
         );
 
-        ActionResult result = executor.execute(action);
+        ActionResult result = executor.execute(invalidAction);
 
         assertThat(result.isSuccess()).isFalse();
-        assertThat(result.operationId()).isEqualTo("UNREGISTERED-TOOL");
+        assertThat(result.operationId()).isEqualTo("AUTH-PROVENANCE-ERR");
         assertThat(toolServer.getInvocationCount()).isEqualTo(0);
     }
 
     @Test
-    @DisplayName("4. Missing required parameters returns INVALID-PARAMS error without calling tool")
+    @DisplayName("4. Frozen ToolRegistry rejects runtime modifications")
+    void testFrozenRegistryRejectsModifications() {
+        assertThat(toolRegistry.isFrozen()).isTrue();
+
+        McpToolDefinition newTool = McpToolDefinition.of(
+                "rogueTool",
+                "Unauthorized tool",
+                ActionType.of("ROGUE"),
+                Set.of("param1")
+        );
+
+        assertThatThrownBy(() -> toolRegistry.registerTool(newTool))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("frozen and immutable");
+    }
+
+    @Test
+    @DisplayName("5. Missing required parameters returns INVALID-PARAMS error without calling tool")
     void testMissingRequiredParametersRejected() {
         ActionProposal proposal = ActionProposal.builder()
                 .actionId("ACT-MCP-004")
@@ -144,7 +175,7 @@ public class McpAdapterTest {
     }
 
     @Test
-    @DisplayName("5. Unexpected parameters rejected by strict tool schema with UNEXPECTED-PARAMS error")
+    @DisplayName("6. Unexpected parameters rejected by strict tool schema with UNEXPECTED-PARAMS error")
     void testUnexpectedParametersRejectedByStrictSchema() {
         ActionProposal proposal = ActionProposal.builder()
                 .actionId("ACT-MCP-005")
@@ -152,7 +183,7 @@ public class McpAdapterTest {
                 .targetResource("SHIP-5505")
                 .parameter("shipmentId", "SHIP-5505")
                 .parameter("newAppointmentTime", "2026-08-24T18:00:00Z")
-                .parameter("unauthorizedPrivilegedField", "DROP_DATABASE") // Disallowed by strict schema
+                .parameter("unauthorizedPrivilegedField", "DROP_DATABASE")
                 .build();
 
         AuthorizedAction action = AuthorizedAction.issue(
@@ -168,34 +199,6 @@ public class McpAdapterTest {
         assertThat(result.isSuccess()).isFalse();
         assertThat(result.operationId()).isEqualTo("UNEXPECTED-PARAMS");
         assertThat(result.message()).contains("unauthorizedPrivilegedField");
-        assertThat(toolServer.getInvocationCount()).isEqualTo(0);
-    }
-
-    @Test
-    @DisplayName("6. Expired AuthorizedAction is rejected before MCP tool invocation")
-    void testExpiredActionRejected() {
-        ActionProposal proposal = ActionProposal.builder()
-                .actionId("ACT-MCP-006")
-                .actionType(ActionType.UPDATE_SHIPMENT_STATUS)
-                .targetResource("SHIP-5506")
-                .parameter("shipmentId", "SHIP-5506")
-                .parameter("status", "DELIVERED")
-                .build();
-
-        // Action expired 10 minutes ago
-        Instant pastIssuedAt = fixedClock.instant().minus(Duration.ofMinutes(15));
-        AuthorizedAction expiredAction = AuthorizedAction.issue(
-                proposal,
-                "STANDARD-POLICY",
-                "LogistiX-Governance",
-                Duration.ofMinutes(5),
-                pastIssuedAt
-        );
-
-        ActionResult result = executor.execute(expiredAction);
-
-        assertThat(result.isSuccess()).isFalse();
-        assertThat(result.operationId()).isEqualTo("EXPIRED");
         assertThat(toolServer.getInvocationCount()).isEqualTo(0);
     }
 

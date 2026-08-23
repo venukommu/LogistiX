@@ -6,60 +6,75 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Collections;
 import java.util.HexFormat;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.TreeMap;
 import java.util.UUID;
 
 /**
- * Immutable, tamper-evident tokenized representation of an Action that has been deterministically validated and
+ * Immutable, tamper-evident class representing an Action that has been deterministically validated and
  * authorized by LogistiX Governance.
  *
- * Implements exact action binding via a canonical SHA-256 authorization fingerprint and time-to-live (TTL) expiration window.
- * ONLY an AuthorizedAction may be accepted and executed by an ActionExecutor.
+ * Implemented as a final class with controlled factory instantiation to prevent unauthorized manual instantiation.
+ * Enforces exact action binding via recursive parameter canonicalization, reference provenance verification,
+ * and exact-boundary expiration evaluation.
  */
-public record AuthorizedAction(
-        String actionId,
-        ActionType actionType,
-        String targetResource,
-        Map<String, Object> parameters,
-        String authorizationToken,
-        String authorizationFingerprint,
-        String authorizedBy,
-        String policyApplied,
-        String correlationId,
-        String idempotencyKey,
-        Instant authorizedAt,
-        Instant expiresAt
-) {
-    public AuthorizedAction {
-        Objects.requireNonNull(actionId, "actionId must not be null");
-        Objects.requireNonNull(actionType, "actionType must not be null");
-        Objects.requireNonNull(targetResource, "targetResource must not be null");
-        Objects.requireNonNull(authorizationToken, "authorizationToken must not be null");
+public final class AuthorizedAction {
 
-        // Total defensive copy of parameters into unmodifiable map
-        parameters = parameters != null ? Collections.unmodifiableMap(new LinkedHashMap<>(parameters)) : Collections.emptyMap();
-        authorizedBy = authorizedBy != null ? authorizedBy : "LogistiX-Governance";
-        policyApplied = policyApplied != null ? policyApplied : "DEFAULT_POLICY";
-        correlationId = correlationId != null ? correlationId : actionId;
-        idempotencyKey = idempotencyKey != null ? idempotencyKey : actionId;
-        authorizedAt = authorizedAt != null ? authorizedAt : Instant.now();
-        expiresAt = expiresAt != null ? expiresAt : authorizedAt.plus(Duration.ofMinutes(5));
+    private final String actionId;
+    private final ActionType actionType;
+    private final String targetResource;
+    private final Map<String, Object> parameters;
+    private final String authorizationToken;
+    private final String authorizationFingerprint;
+    private final AuthorizationProvenance provenance;
+    private final String authorizedBy;
+    private final String policyApplied;
+    private final String correlationId;
+    private final String idempotencyKey;
+    private final Instant authorizedAt;
+    private final Instant expiresAt;
+
+    private AuthorizedAction(
+            String actionId,
+            ActionType actionType,
+            String targetResource,
+            Map<String, Object> parameters,
+            String authorizationToken,
+            String authorizationFingerprint,
+            AuthorizationProvenance provenance,
+            String authorizedBy,
+            String policyApplied,
+            String correlationId,
+            String idempotencyKey,
+            Instant authorizedAt,
+            Instant expiresAt
+    ) {
+        this.actionId = Objects.requireNonNull(actionId, "actionId must not be null");
+        this.actionType = Objects.requireNonNull(actionType, "actionType must not be null");
+        this.targetResource = Objects.requireNonNull(targetResource, "targetResource must not be null");
+        this.parameters = ParameterCanonicalizer.deepUnmodifiableCopy(parameters);
+        this.authorizationToken = Objects.requireNonNull(authorizationToken, "authorizationToken must not be null");
+        this.provenance = Objects.requireNonNull(provenance, "provenance must not be null");
+        this.authorizedBy = authorizedBy != null ? authorizedBy : "LogistiX-Governance";
+        this.policyApplied = policyApplied != null ? policyApplied : "DEFAULT_POLICY";
+        this.correlationId = correlationId != null ? correlationId : actionId;
+        this.idempotencyKey = idempotencyKey != null ? idempotencyKey : actionId;
+        this.authorizedAt = authorizedAt != null ? authorizedAt : Instant.now();
+        this.expiresAt = expiresAt != null ? expiresAt : this.authorizedAt.plus(Duration.ofMinutes(5));
 
         if (authorizationFingerprint == null || authorizationFingerprint.isBlank()) {
-            authorizationFingerprint = computeFingerprint(
-                    actionType, targetResource, parameters, policyApplied,
-                    correlationId, idempotencyKey, expiresAt
+            this.authorizationFingerprint = computeFingerprint(
+                    this.actionType, this.targetResource, this.parameters, this.policyApplied,
+                    this.correlationId, this.idempotencyKey, this.expiresAt, this.provenance.issuerId()
             );
+        } else {
+            this.authorizationFingerprint = authorizationFingerprint;
         }
     }
 
     /**
-     * Issues an AuthorizedAction from a validated ActionProposal with a defined validity duration.
+     * Controlled factory method: Issues a valid, authentic AuthorizedAction from an ActionProposal.
      */
     public static AuthorizedAction issue(
             ActionProposal proposal,
@@ -73,7 +88,8 @@ public record AuthorizedAction(
         Duration ttl = (validityDuration != null && !validityDuration.isNegative() && !validityDuration.isZero())
                 ? validityDuration : Duration.ofMinutes(5);
         Instant expiration = start.plus(ttl);
-        String token = "AUTH-" + UUID.randomUUID();
+        String token = "AUTH-LGX-" + UUID.randomUUID();
+        AuthorizationProvenance prov = AuthorizationProvenance.of(authorizedBy, start);
 
         String fingerprint = computeFingerprint(
                 proposal.actionType(),
@@ -82,7 +98,8 @@ public record AuthorizedAction(
                 policyApplied != null ? policyApplied : "DEFAULT_POLICY",
                 proposal.correlationId(),
                 proposal.idempotencyKey(),
-                expiration
+                expiration,
+                prov.issuerId()
         );
 
         return new AuthorizedAction(
@@ -92,6 +109,7 @@ public record AuthorizedAction(
                 proposal.parameters(),
                 token,
                 fingerprint,
+                prov,
                 authorizedBy != null ? authorizedBy : "LogistiX-Governance",
                 policyApplied != null ? policyApplied : "DEFAULT_POLICY",
                 proposal.correlationId(),
@@ -106,11 +124,52 @@ public record AuthorizedAction(
     }
 
     /**
-     * Evaluates whether the authorization has expired relative to a reference timestamp.
+     * Testing factory for synthesizing adversarial edge cases (e.g. forged tokens, tampered fingerprints).
+     */
+    public static AuthorizedAction createForTesting(
+            String actionId,
+            ActionType actionType,
+            String targetResource,
+            Map<String, Object> parameters,
+            String authorizationToken,
+            String authorizationFingerprint,
+            AuthorizationProvenance provenance,
+            String authorizedBy,
+            String policyApplied,
+            String correlationId,
+            String idempotencyKey,
+            Instant authorizedAt,
+            Instant expiresAt
+    ) {
+        return new AuthorizedAction(
+                actionId, actionType, targetResource, parameters, authorizationToken,
+                authorizationFingerprint, provenance != null ? provenance : AuthorizationProvenance.of(authorizedBy),
+                authorizedBy, policyApplied, correlationId, idempotencyKey, authorizedAt, expiresAt
+        );
+    }
+
+    // Accessors
+    public String actionId() { return actionId; }
+    public ActionType actionType() { return actionType; }
+    public String targetResource() { return targetResource; }
+    public Map<String, Object> parameters() { return parameters; }
+    public String authorizationToken() { return authorizationToken; }
+    public String authorizationFingerprint() { return authorizationFingerprint; }
+    public AuthorizationProvenance provenance() { return provenance; }
+    public String authorizedBy() { return authorizedBy; }
+    public String policyApplied() { return policyApplied; }
+    public String correlationId() { return correlationId; }
+    public String idempotencyKey() { return idempotencyKey; }
+    public Instant authorizedAt() { return authorizedAt; }
+    public Instant expiresAt() { return expiresAt; }
+
+    /**
+     * Evaluates whether the authorization is expired relative to a reference timestamp.
+     * Enforces the exact-boundary rule: now >= expiresAt means EXPIRED.
      */
     public boolean isExpired(Instant referenceTime) {
         Instant now = referenceTime != null ? referenceTime : Instant.now();
-        return now.isAfter(expiresAt);
+        return !now.isBefore(expiresAt); // now >= expiresAt
     }
 
     /**
@@ -122,12 +181,11 @@ public record AuthorizedAction(
 
     /**
      * Verifies that the current action's state matches the cryptographic SHA-256 authorization fingerprint.
-     * Prevents parameter or target mutation after authorization.
      */
     public boolean matchesFingerprint() {
         String calculated = computeFingerprint(
                 actionType, targetResource, parameters, policyApplied,
-                correlationId, idempotencyKey, expiresAt
+                correlationId, idempotencyKey, expiresAt, provenance.issuerId()
         );
         return Objects.equals(this.authorizationFingerprint, calculated);
     }
@@ -142,7 +200,8 @@ public record AuthorizedAction(
             String policyApplied,
             String correlationId,
             String idempotencyKey,
-            Instant expiresAt
+            Instant expiresAt,
+            String issuerId
     ) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -151,23 +210,49 @@ public record AuthorizedAction(
             canonical.append("TYPE:").append(actionType.code()).append("|");
             canonical.append("TARGET:").append(targetResource).append("|");
             canonical.append("POLICY:").append(policyApplied).append("|");
+            canonical.append("ISSUER:").append(issuerId != null ? issuerId : "UNKNOWN").append("|");
             canonical.append("CORR:").append(correlationId).append("|");
             canonical.append("IDEMP:").append(idempotencyKey).append("|");
             canonical.append("EXPIRES:").append(expiresAt.toEpochMilli()).append("|");
-            canonical.append("PARAMS:");
-
-            if (parameters != null && !parameters.isEmpty()) {
-                // Canonical deterministic sorting of parameter keys
-                TreeMap<String, Object> sortedParams = new TreeMap<>(parameters);
-                for (Map.Entry<String, Object> entry : sortedParams.entrySet()) {
-                    canonical.append(entry.getKey()).append("=").append(String.valueOf(entry.getValue())).append(";");
-                }
-            }
+            canonical.append("PARAMS:").append(ParameterCanonicalizer.canonicalize(parameters));
 
             byte[] hash = digest.digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 algorithm unavailable in JVM", e);
         }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        AuthorizedAction that = (AuthorizedAction) o;
+        return Objects.equals(actionId, that.actionId) &&
+                Objects.equals(actionType, that.actionType) &&
+                Objects.equals(targetResource, that.targetResource) &&
+                Objects.equals(parameters, that.parameters) &&
+                Objects.equals(authorizationToken, that.authorizationToken) &&
+                Objects.equals(authorizationFingerprint, that.authorizationFingerprint) &&
+                Objects.equals(provenance, that.provenance) &&
+                Objects.equals(expiresAt, that.expiresAt);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(actionId, actionType, targetResource, parameters, authorizationToken, authorizationFingerprint, provenance, expiresAt);
+    }
+
+    @Override
+    public String toString() {
+        return "AuthorizedAction[" +
+                "actionId='" + actionId + '\'' +
+                ", actionType=" + actionType +
+                ", targetResource='" + targetResource + '\'' +
+                ", authorizationToken='" + authorizationToken + '\'' +
+                ", authorizationFingerprint='" + authorizationFingerprint + '\'' +
+                ", authorizedBy='" + authorizedBy + '\'' +
+                ", expiresAt=" + expiresAt +
+                ']';
     }
 }

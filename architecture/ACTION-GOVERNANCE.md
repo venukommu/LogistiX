@@ -22,7 +22,7 @@ LogistiX enforces a strict, technology-neutral authorization boundary where inte
                      ┌───────────────────────┐
                      │  LOGISTIX GOVERNANCE  │
                      │                       │
-                     │  1. Idempotency Check │
+                     │  1. Atomic Idemp Check│
                      │  2. Action Whitelist  │
                      │  3. HARD Constraints  │
                      │  4. Risk Threshold    │
@@ -35,7 +35,9 @@ LogistiX enforces a strict, technology-neutral authorization boundary where inte
                      │        REQUIRED       │
                      │           │           ▼
                      │           │    AuthorizedAction
-                     │           │    (SHA-256 Token)
+                     │           │ (Immutable Class +
+                     │           │  SHA-256 Fingerprint +
+                     │           │  Provenance Token)
                      │           │           │
                      │           │           ▼
                      │           │     ActionExecutor
@@ -53,40 +55,51 @@ LogistiX enforces a strict, technology-neutral authorization boundary where inte
 
 ---
 
-## 3. Fundamental Invariants
+## 3. Fundamental Invariants & Provenance Integrity
 
 1. **Proposal != Authorization**:
-   - `ActionProposal` is strictly an advisory request. Passing an `ActionProposal` to an `ActionExecutor` or `McpActionExecutor` is architecturally prohibited by strong Java type typing.
-2. **Authorization != Execution**:
-   - Creating an `AuthorizedAction` does not execute it. Execution happens only when explicitly dispatched to an `ActionExecutor`.
-3. **MCP != Governance**:
-   - MCP is purely an infrastructure connectivity transport. MCP has **zero** authority to approve actions. The core domain (`logistix-domain`) is 100% free of MCP dependencies.
-4. **Exact Action Binding via SHA-256 Fingerprint**:
+   - `ActionProposal` is strictly an advisory request. Passing an `ActionProposal` to an `ActionExecutor` is impossible via the strongly typed API.
+2. **Controlled Issuance & Authorization Provenance**:
+   - `AuthorizedAction` is an immutable `final class` (eliminating the public canonical record constructor).
+   - Only `LogistiX Governance` can mint authentic authorizations with valid `AuthorizationProvenance`.
+3. **Tamper-Evident Integrity via Canonical SHA-256 Fingerprint**:
    - Every `AuthorizedAction` carries an immutable `authorizationFingerprint` computed deterministically over:
-     `actionType`, `targetResource`, sorted `parameters`, `policyApplied`, `correlationId`, `idempotencyKey`, and `expiresAt`.
-   - Modifying a parameter or swapping a target resource after authorization immediately triggers a fingerprint mismatch and halts execution.
-5. **Clock-Based Expiration Window**:
-   - Authorizations possess a configurable validity duration (`expiresAt`). Expired authorizations cannot execute.
-6. **Strict Schema & Controlled Tool Registry**:
-   - `ToolRegistry` contains an explicit whitelist of registered tools. AI cannot invent arbitrary tool names or supply malicious MCP server endpoints.
+     `actionType`, `targetResource`, recursively canonicalized `parameters`, `policyApplied`, `issuerId`, `correlationId`, `idempotencyKey`, and `expiresAt`.
+   - Modifying any parameter (including nested collections) or swapping a target resource after authorization triggers a fingerprint mismatch and halts execution.
+4. **Deterministic Parameter Canonicalization**:
+   - Canonicalized via `ParameterCanonicalizer`:
+     - Map keys sorted lexicographically (`M:{k1=v1,k2=v2}`).
+     - Set elements deterministically sorted (`SET:[e1,e2]`).
+     - List element order preserved (`L:[e1,e2]`).
+     - Explicit typed prefixes (`S:`, `N:`, `B:`, `E:`, `null`) prevent delimiter collision.
+5. **Exact-Boundary Expiration**:
+   - Authorizations possess an `expiresAt` window (default 5 minutes). At `now >= expiresAt`, the authorization is strictly treated as expired.
+6. **Atomic Idempotency Reservation**:
+   - Concurrent submissions with the same idempotency key are atomically reserved, guaranteeing exactly one execution.
+7. **Immutable Frozen Tool Registry**:
+   - `ToolRegistry` enforces a strict lifecycle (`configure` $\to$ `freeze`), rejecting tool registration or modification during execution.
 
 ---
 
 ## 4. Human Approval Revalidation Lifecycle
 
-When an action is classified as `APPROVAL_REQUIRED` (e.g. high-risk schedule changes or low confidence):
+When an action is classified as `APPROVAL_REQUIRED`:
 
 ```
 ActionProposal (High Risk)
      ↓
 Governance Evaluation → APPROVAL_REQUIRED (0 MCP Calls)
      ↓
-Operational Supervisor Grants Approval (ActionApprovalGrant)
+Operational Supervisor Grants Approval (ActionApprovalGrant with Proposal Fingerprint)
      ↓
 Governance Revalidation (revalidateAndAuthorize)
+  ├── Verify Grant Has Not Been Consumed (Atomic Single-Use Check)
   ├── Verify Grant Action ID == Proposal Action ID
   ├── Verify Grant Target Resource == Proposal Target Resource
+  ├── Verify Grant Proposal Fingerprint == Current Proposal Fingerprint
   └── Re-verify HARD Constraints
+     ↓
+Grant Marked Consumed
      ↓
 Fresh AuthorizedAction Issued
      ↓
@@ -95,12 +108,13 @@ ActionExecutor Dispatches to MCP
 
 ---
 
-## 5. Reference Implementation Limitations & Production Roadmap
+## 5. Reference Implementation vs Production Architecture
 
-| Capability | Sprint 10.1 Reference Implementation | Production Enterprise Target |
+| Capability | LogistiX Reference Implementation | Future Production Deployment |
 | :--- | :--- | :--- |
-| **Audit Storage** | In-Memory `InMemoryActionAuditStore` | Distributed immutable append-only event log (e.g., Kafka / PostgreSQL WORM) |
-| **Idempotency** | In-Memory `ConcurrentHashMap` | Distributed Redis / Hazelcast idempotency lock |
+| **Audit Storage** | In-Memory `InMemoryActionAuditStore` | Append-only WORM event store (PostgreSQL/Kafka) |
+| **Idempotency** | In-Memory Atomic Reservation | Distributed Redis / Hazelcast idempotency lock |
 | **Tool Execution** | Deterministic `MockMcpToolServer` | Production MCP Transport (stdio / SSE) with mTLS |
-| **Authorization Token** | Canonical SHA-256 Fingerprint + Token | Asymmetric Cryptographic Signing (Ed25519 / HMAC) |
-| **Approval Workflow** | In-Memory `ActionApprovalGrant` | Enterprise BPMN / ServiceNow / Slack approval gateway |
+| **Issuer Authentication**| Reference `AuthorizationProvenance` + Token | Asymmetric Cryptographic Signing (Ed25519 / HMAC) |
+| **Integrity Check** | Canonical SHA-256 Fingerprint | Canonical SHA-256 + Signed Payload Envelope |
+| **Approval Workflow** | In-Memory `ActionApprovalGrant` | Enterprise BPMN / ServiceNow approval gateway |

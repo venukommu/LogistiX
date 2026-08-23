@@ -22,11 +22,11 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Production-grade deterministic Action Governance Engine with hardened boundary protections:
- * - Exact action binding via SHA-256 fingerprinting
- * - Clock-based expiration TTL evaluation
- * - Idempotency key mutation & replay detection
- * - Supervisor revalidation lifecycle for APPROVAL_REQUIRED actions
- * - Defensive audit logging
+ * - Exact action binding via recursive SHA-256 fingerprinting
+ * - Clock-based exact boundary expiration TTL evaluation (now >= expiresAt)
+ * - Atomic idempotency reservation preventing concurrency race conditions
+ * - Single-use proposal-fingerprint binding for supervisor approval grants
+ * - Reference authorization provenance tracking
  */
 public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
 
@@ -38,6 +38,7 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
     private final Map<String, ActionProposal> proposalIdempotencyStore = new ConcurrentHashMap<>();
     private final Map<String, ActionDecision> decisionIdempotencyStore = new ConcurrentHashMap<>();
     private final Map<String, ActionResult> executionIdempotencyStore = new ConcurrentHashMap<>();
+    private final Object executionLock = new Object();
     private volatile ActionTelemetry lastTelemetry;
 
     public DefaultActionGovernanceEngine() {
@@ -81,18 +82,21 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
 
         // 1. Idempotency & Tampering Protection
         String idempKey = proposal.idempotencyKey();
-        if (proposalIdempotencyStore.containsKey(idempKey)) {
-            ActionProposal originalProposal = proposalIdempotencyStore.get(idempKey);
+        ActionProposal existingProposal = proposalIdempotencyStore.putIfAbsent(idempKey, proposal);
+        if (existingProposal != null) {
             // Verify if someone attempts to reuse an existing idempotency key with mutated parameters or target
-            if (!Objects.equals(originalProposal.targetResource(), proposal.targetResource()) ||
-                !Objects.equals(originalProposal.parameters(), proposal.parameters()) ||
-                !Objects.equals(originalProposal.actionType(), proposal.actionType())) {
+            if (!Objects.equals(existingProposal.targetResource(), proposal.targetResource()) ||
+                !Objects.equals(existingProposal.parameters(), proposal.parameters()) ||
+                !Objects.equals(existingProposal.actionType(), proposal.actionType())) {
                 List<String> violations = List.of("Idempotency key reused with mutated parameters or target resource");
                 ActionDecision tampered = ActionDecision.rejected(proposal, "Idempotency key parameter tampering detected", violations);
                 recordDecision(proposal, activePolicy, tampered);
                 return tampered;
             }
-            return decisionIdempotencyStore.get(idempKey);
+            ActionDecision cachedDecision = decisionIdempotencyStore.get(idempKey);
+            if (cachedDecision != null) {
+                return cachedDecision;
+            }
         }
 
         List<String> violations = new ArrayList<>();
@@ -150,12 +154,12 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
             return decision;
         }
 
-        // 7. Deterministic Authorization Approval with Fingerprint and Expiration TTL
+        // 7. Deterministic Authorization Approval with Fingerprint, Provenance and Expiration TTL
         Instant now = clock.instant();
         AuthorizedAction authorizedAction = AuthorizedAction.issue(
                 proposal,
                 activePolicy.policyId(),
-                "LogistiX-ActionGovernance",
+                "LogistiX-Governance-Authority",
                 authorizationTtl,
                 now
         );
@@ -176,19 +180,26 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
 
         List<String> violations = new ArrayList<>();
 
-        // Verify grant matches proposal
-        if (!Objects.equals(proposal.actionId(), grant.actionId())) {
-            violations.add(String.format("Approval grant action ID [%s] does not match proposal action ID [%s]",
-                    grant.actionId(), proposal.actionId()));
-            ActionDecision decision = ActionDecision.rejected(proposal, "Approval grant action ID mismatch", violations);
+        // Single-use consumption check
+        if (grant.isConsumed()) {
+            violations.add(String.format("Approval grant [%s] has already been consumed or revoked", grant.grantId()));
+            ActionDecision decision = ActionDecision.rejected(proposal, "Approval grant already consumed (replay rejected)", violations);
             recordDecision(proposal, activePolicy, decision);
             return decision;
         }
 
-        if (grant.expectedTargetResource() != null && !grant.expectedTargetResource().equals(proposal.targetResource())) {
-            violations.add(String.format("Approval grant target [%s] does not match proposal target [%s]",
-                    grant.expectedTargetResource(), proposal.targetResource()));
-            ActionDecision decision = ActionDecision.rejected(proposal, "Approval grant target resource mismatch", violations);
+        // Verify grant matches proposal action ID, target and proposal fingerprint
+        if (!grant.isMatchingProposal(proposal)) {
+            violations.add(String.format("Approval grant [%s] does not match proposal target, parameters or action ID", grant.grantId()));
+            ActionDecision decision = ActionDecision.rejected(proposal, "Approval grant proposal tampering or mismatch detected", violations);
+            recordDecision(proposal, activePolicy, decision);
+            return decision;
+        }
+
+        // Atomically consume the approval grant
+        if (!grant.markConsumed()) {
+            violations.add("Approval grant consumption race condition detected");
+            ActionDecision decision = ActionDecision.rejected(proposal, "Approval grant already consumed concurrently", violations);
             recordDecision(proposal, activePolicy, decision);
             return decision;
         }
@@ -225,120 +236,123 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
         Objects.requireNonNull(proposal, "ActionProposal must not be null");
         Objects.requireNonNull(executor, "ActionExecutor must not be null");
 
-        // Idempotent execution check
         String idempKey = proposal.idempotencyKey();
-        if (executionIdempotencyStore.containsKey(idempKey)) {
-            return executionIdempotencyStore.get(idempKey);
-        }
 
-        Instant govStart = clock.instant();
-        ActionDecision decision = evaluate(proposal, policy);
-        Duration govLatency = Duration.between(govStart, clock.instant());
+        // Atomic thread-safe execution check
+        synchronized (executionLock) {
+            if (executionIdempotencyStore.containsKey(idempKey)) {
+                return executionIdempotencyStore.get(idempKey);
+            }
 
-        // NON-NEGOTIABLE BOUNDARY: Only APPROVED actions may reach the executor
-        if (!decision.isApproved() || decision.authorizedAction().isEmpty()) {
+            Instant govStart = clock.instant();
+            ActionDecision decision = evaluate(proposal, policy);
+            Duration govLatency = Duration.between(govStart, clock.instant());
+
+            // NON-NEGOTIABLE BOUNDARY: Only APPROVED actions may reach the executor
+            if (!decision.isApproved() || decision.authorizedAction().isEmpty()) {
+                this.lastTelemetry = ActionTelemetry.of(
+                        proposal.actionId(),
+                        proposal.actionType(),
+                        decision.status(),
+                        govLatency,
+                        Duration.ZERO,
+                        executor.getExecutorType(),
+                        false,
+                        proposal.correlationId()
+                );
+
+                ActionResult rejectedResult = ActionResult.failure(
+                        proposal.actionId(),
+                        "NONE",
+                        decision.reason(),
+                        "Action not authorized: " + decision.status(),
+                        Duration.ZERO
+                );
+
+                recordExecution(proposal, policy, decision, rejectedResult, executor.getExecutorType());
+                return rejectedResult;
+            }
+
+            AuthorizedAction authorizedAction = decision.authorizedAction().get();
+
+            // 1. Authorization Expiration Invariant Check (now >= expiresAt)
+            if (authorizedAction.isExpired(clock)) {
+                this.lastTelemetry = ActionTelemetry.of(
+                        proposal.actionId(),
+                        proposal.actionType(),
+                        ActionStatus.FAILED,
+                        govLatency,
+                        Duration.ZERO,
+                        executor.getExecutorType(),
+                        false,
+                        proposal.correlationId()
+                );
+                ActionResult expiredResult = ActionResult.failure(
+                        proposal.actionId(),
+                        "EXPIRED",
+                        "AuthorizedAction expired before execution",
+                        "Security Violation: Attempted to execute expired authorization",
+                        Duration.ZERO
+                );
+                recordExecution(proposal, policy, decision, expiredResult, executor.getExecutorType());
+                return expiredResult;
+            }
+
+            // 2. Exact Action Fingerprint Invariant Check
+            if (!authorizedAction.matchesFingerprint()) {
+                this.lastTelemetry = ActionTelemetry.of(
+                        proposal.actionId(),
+                        proposal.actionType(),
+                        ActionStatus.FAILED,
+                        govLatency,
+                        Duration.ZERO,
+                        executor.getExecutorType(),
+                        false,
+                        proposal.correlationId()
+                );
+                ActionResult tamperedResult = ActionResult.failure(
+                        proposal.actionId(),
+                        "TAMPERED",
+                        "AuthorizedAction fingerprint mismatch",
+                        "Security Violation: Parameter or target tampering detected",
+                        Duration.ZERO
+                );
+                recordExecution(proposal, policy, decision, tamperedResult, executor.getExecutorType());
+                return tamperedResult;
+            }
+
+            // 3. Execute authorized action through the outbound executor/MCP adapter
+            Instant execStart = clock.instant();
+            ActionResult result;
+            try {
+                result = executor.execute(authorizedAction);
+            } catch (Exception ex) {
+                Duration execLatency = Duration.between(execStart, clock.instant());
+                result = ActionResult.failure(
+                        proposal.actionId(),
+                        "ERR-" + proposal.actionId(),
+                        "Execution exception: " + ex.getMessage(),
+                        ex.toString(),
+                        execLatency
+                );
+            }
+
+            Duration execLatency = Duration.between(execStart, clock.instant());
             this.lastTelemetry = ActionTelemetry.of(
                     proposal.actionId(),
                     proposal.actionType(),
                     decision.status(),
                     govLatency,
-                    Duration.ZERO,
+                    execLatency,
                     executor.getExecutorType(),
-                    false,
+                    result.isSuccess(),
                     proposal.correlationId()
             );
 
-            ActionResult rejectedResult = ActionResult.failure(
-                    proposal.actionId(),
-                    "NONE",
-                    decision.reason(),
-                    "Action not authorized: " + decision.status(),
-                    Duration.ZERO
-            );
-
-            recordExecution(proposal, policy, decision, rejectedResult, executor.getExecutorType());
-            return rejectedResult;
+            executionIdempotencyStore.put(idempKey, result);
+            recordExecution(proposal, policy, decision, result, executor.getExecutorType());
+            return result;
         }
-
-        AuthorizedAction authorizedAction = decision.authorizedAction().get();
-
-        // 1. Authorization Expiration Invariant Check
-        if (authorizedAction.isExpired(clock)) {
-            this.lastTelemetry = ActionTelemetry.of(
-                    proposal.actionId(),
-                    proposal.actionType(),
-                    ActionStatus.FAILED,
-                    govLatency,
-                    Duration.ZERO,
-                    executor.getExecutorType(),
-                    false,
-                    proposal.correlationId()
-            );
-            ActionResult expiredResult = ActionResult.failure(
-                    proposal.actionId(),
-                    "EXPIRED",
-                    "AuthorizedAction expired before execution",
-                    "Security Violation: Attempted to execute expired authorization",
-                    Duration.ZERO
-            );
-            recordExecution(proposal, policy, decision, expiredResult, executor.getExecutorType());
-            return expiredResult;
-        }
-
-        // 2. Exact Action Fingerprint Invariant Check
-        if (!authorizedAction.matchesFingerprint()) {
-            this.lastTelemetry = ActionTelemetry.of(
-                    proposal.actionId(),
-                    proposal.actionType(),
-                    ActionStatus.FAILED,
-                    govLatency,
-                    Duration.ZERO,
-                    executor.getExecutorType(),
-                    false,
-                    proposal.correlationId()
-            );
-            ActionResult tamperedResult = ActionResult.failure(
-                    proposal.actionId(),
-                    "TAMPERED",
-                    "AuthorizedAction fingerprint mismatch",
-                    "Security Violation: Parameter or target tampering detected",
-                    Duration.ZERO
-            );
-            recordExecution(proposal, policy, decision, tamperedResult, executor.getExecutorType());
-            return tamperedResult;
-        }
-
-        // Execute authorized action through the outbound executor/MCP adapter
-        Instant execStart = clock.instant();
-        ActionResult result;
-        try {
-            result = executor.execute(authorizedAction);
-        } catch (Exception ex) {
-            Duration execLatency = Duration.between(execStart, clock.instant());
-            result = ActionResult.failure(
-                    proposal.actionId(),
-                    "ERR-" + proposal.actionId(),
-                    "Execution exception: " + ex.getMessage(),
-                    ex.toString(),
-                    execLatency
-            );
-        }
-
-        Duration execLatency = Duration.between(execStart, clock.instant());
-        this.lastTelemetry = ActionTelemetry.of(
-                proposal.actionId(),
-                proposal.actionType(),
-                decision.status(),
-                govLatency,
-                execLatency,
-                executor.getExecutorType(),
-                result.isSuccess(),
-                proposal.correlationId()
-        );
-
-        executionIdempotencyStore.put(idempKey, result);
-        recordExecution(proposal, policy, decision, result, executor.getExecutorType());
-        return result;
     }
 
     @Override
@@ -347,7 +361,6 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
     }
 
     private void recordDecision(ActionProposal proposal, ActionPolicy policy, ActionDecision decision) {
-        proposalIdempotencyStore.put(proposal.idempotencyKey(), proposal);
         decisionIdempotencyStore.put(proposal.idempotencyKey(), decision);
         auditStore.record(new ActionAuditEntry(
                 proposal.actionId(),
