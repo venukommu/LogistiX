@@ -1,0 +1,214 @@
+package org.logistix.examples.dispatch;
+
+import org.logistix.common.enums.PriorityLevel;
+import org.logistix.common.model.Coordinates;
+import org.logistix.domain.decision.DecisionContext;
+import org.logistix.domain.decision.DecisionResult;
+import org.logistix.domain.explanation.Explanation;
+import org.logistix.domain.explanation.FeatureContribution;
+import org.logistix.domain.fact.Fact;
+import org.logistix.domain.fact.FactBag;
+import org.logistix.dsl.LogistiX;
+import org.logistix.engine.executor.DecisionExecutor;
+import org.logistix.engine.pipeline.DecisionPipeline;
+import org.logistix.examples.dispatch.ai.DispatchAIAdvisor;
+import org.logistix.examples.dispatch.model.Certification;
+import org.logistix.examples.dispatch.model.DispatchAssignment;
+import org.logistix.examples.dispatch.model.DispatchCandidate;
+import org.logistix.examples.dispatch.model.Driver;
+import org.logistix.examples.dispatch.model.DriverTier;
+import org.logistix.examples.dispatch.model.Shipment;
+import org.logistix.examples.dispatch.pipeline.DispatchDecisionModelFactory;
+import org.logistix.examples.dispatch.pipeline.DispatchDecisionPipelineFactory;
+import org.logistix.examples.dispatch.simulation.DispatchBenchmarkRunner;
+import org.logistix.model.graph.DecisionGraph;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+
+/**
+ * Interactive Reference Application demonstrating AI-Assisted Driver Dispatch on the LogistiX Decision Intelligence Framework.
+ */
+public class DriverDispatchReferenceApp {
+
+    public static void main(String[] args) {
+        System.out.println("================================================================================");
+        System.out.println("   LogistiX Framework Reference Capability: AI-Assisted Driver Dispatch");
+        System.out.println("================================================================================\n");
+
+        // 1. Render Declarative Decision Graph Topology
+        DecisionGraph model = DispatchDecisionModelFactory.createModel();
+        System.out.println("[1] Declarative Decision Graph Topology:");
+        System.out.println("    Model ID: " + model.getModelId() + " (" + model.getName() + ")");
+        System.out.println("    Nodes (" + model.getNodes().size() + "): " + model.getNodes().stream().map(n -> n.getName() + " [" + n.getNodeType() + "]").toList());
+        System.out.println("    Edges (" + model.getEdges().size() + "): " + model.getEdges().stream().map(e -> e.sourceNodeId() + " -> " + e.targetNodeId()).toList());
+        System.out.println();
+
+        // 2. Prepare Sample Operational Fleet & Urgent HazMat Shipment
+        Instant now = Instant.now();
+
+        Shipment urgentHazMatShipment = Shipment.builder()
+                .shipmentId(UUID.randomUUID())
+                .origin(Coordinates.of(37.7749, -122.4194)) // San Francisco Distribution Center
+                .destination(Coordinates.of(34.0522, -118.2437)) // Los Angeles Fulfillment Center (~615 km)
+                .weightKg(12500.0)
+                .volumeM3(35.0)
+                .requiredCertifications(Set.of(Certification.HAZMAT))
+                .pickupTimeWindowStart(now)
+                .pickupTimeWindowEnd(now.plus(Duration.ofHours(2)))
+                .deliveryDeadline(now.plus(Duration.ofHours(12))) // 12-hour strict SLA
+                .priority(PriorityLevel.HIGH)
+                .destinationRegion("US-WEST")
+                .build();
+
+        // Candidate Driver Pool with varying feasibility and tier states
+        Driver driverA = Driver.builder()
+                .name("Alex 'Swift' Rivera")
+                .currentLocation(Coordinates.of(37.8044, -122.2712)) // Oakland (~15 km deadhead)
+                .remainingHos(Duration.ofHours(11))
+                .vehicleWeightCapacityKg(22000.0)
+                .vehicleVolumeCapacityM3(65.0)
+                .certifications(Set.of(Certification.HAZMAT, Certification.TWIC))
+                .tier(DriverTier.PLATINUM)
+                .timeUntilMandatoryRest(Duration.ofHours(6))
+                .homeRegion("US-WEST")
+                .rating(4.95)
+                .historicalOnTimeRate(0.98)
+                .build();
+
+        Driver driverB = Driver.builder()
+                .name("Bob Vance")
+                .currentLocation(Coordinates.of(37.3382, -121.8863)) // San Jose (~75 km deadhead)
+                .remainingHos(Duration.ofHours(9))
+                .vehicleWeightCapacityKg(18000.0)
+                .vehicleVolumeCapacityM3(50.0)
+                .certifications(Set.of(Certification.HAZMAT))
+                .tier(DriverTier.GOLD)
+                .timeUntilMandatoryRest(Duration.ofHours(4))
+                .homeRegion("US-WEST")
+                .rating(4.70)
+                .historicalOnTimeRate(0.92)
+                .build();
+
+        Driver driverC_NoHazMat = Driver.builder()
+                .name("Charlie Davis (No Hazmat)")
+                .currentLocation(Coordinates.of(37.7749, -122.4194)) // In SF (0 km deadhead)
+                .remainingHos(Duration.ofHours(10))
+                .vehicleWeightCapacityKg(25000.0)
+                .vehicleVolumeCapacityM3(70.0)
+                .certifications(Set.of(Certification.REEFER)) // Missing HAZMAT!
+                .tier(DriverTier.PLATINUM)
+                .build();
+
+        Driver driverD_LowHos = Driver.builder()
+                .name("Danielle Evans (Low HOS)")
+                .currentLocation(Coordinates.of(37.7749, -122.4194))
+                .remainingHos(Duration.ofHours(3)) // Insufficient HOS for 8.5h transit!
+                .vehicleWeightCapacityKg(20000.0)
+                .certifications(Set.of(Certification.HAZMAT))
+                .build();
+
+        List<Driver> fleet = List.of(driverA, driverB, driverC_NoHazMat, driverD_LowHos);
+        List<DispatchCandidate> candidates = fleet.stream()
+                .map(d -> DispatchCandidate.from(d, urgentHazMatShipment, now, 0.15, "MODERATE_RAIN"))
+                .toList();
+
+        System.out.println("[2] Candidate Fleet Initialized (" + fleet.size() + " drivers evaluated for HazMat shipment):");
+        for (DispatchCandidate c : candidates) {
+            System.out.printf("    • %-28s | Loc: (%.2f, %.2f) | HOS: %2dh | Certs: %-16s | Tier: %-8s\n",
+                    c.driver().name(), c.driver().currentLocation().latitude(), c.driver().currentLocation().longitude(),
+                    c.driver().remainingHos().toHours(), c.driver().certifications(), c.driver().tier());
+        }
+        System.out.println();
+
+        // 3. Assemble and Execute Decision Pipeline via LogistiX Engine
+        DecisionPipeline hybridPipeline = DispatchDecisionPipelineFactory.createHybridAiPipeline();
+        DecisionExecutor executor = LogistiX.getContext().getExecutor();
+
+        DecisionContext context = DecisionContext.of(
+                DispatchDecisionPipelineFactory.DECISION_TYPE,
+                FactBag.of(
+                        Fact.of("candidates", candidates),
+                        Fact.of("shipment", urgentHazMatShipment)
+                ),
+                Map.of("weatherAdvisory", "MODERATE_RAIN_CENTRAL_VALLEY"),
+                Map.of("executionMode", "HYBRID_AI")
+        );
+
+        System.out.println("[3] Executing Decision Pipeline via LogistiX Engine...");
+        DecisionResult<DispatchAssignment> result = executor.execute(hybridPipeline, context);
+
+        // 4. Render Results and Explainability
+        DispatchAssignment assignment = result.recommendation().item();
+        Explanation exp = result.explanation();
+
+        System.out.println("\n================================================================================");
+        System.out.println("   DISPATCH DECISION OUTCOME & EXPLAINABILITY REPORT");
+        System.out.println("================================================================================");
+        System.out.println("Decision Type      : " + result.decisionType());
+        System.out.println("Execution Duration : " + result.executionTime().toMillis() + " ms");
+        System.out.println("Overall Confidence : " + String.format("%.2f%%", result.confidence() * 100.0));
+        System.out.println("Recommendation     : ASSIGN -> " + assignment.driverName());
+        System.out.println("Composite Score    : " + String.format("%.4f", result.score().value()));
+        System.out.println("Deadhead Distance  : " + String.format("%.1f km", assignment.deadheadDistanceKm()));
+        System.out.println("Linehaul Distance  : " + String.format("%.1f km", assignment.mainDistanceKm()));
+        System.out.println("Scheduled Delivery : " + assignment.scheduledDeliveryTime());
+        System.out.println("Estimated Trip Cost: $" + String.format("%.2f", assignment.estimatedCostUsd()));
+        System.out.println("\nRationale: \n\"" + exp.summary() + "\"");
+
+        System.out.println("\n[Feature Contribution Breakdown]:");
+        for (FeatureContribution fc : exp.featureContributions()) {
+            System.out.printf("   [%-8s] %-30s (Weight: %.2f, Score: %.2f) -> %s\n",
+                    fc.impactDirection(), fc.featureName(), fc.weight(), fc.contributionScore(), fc.rationale());
+        }
+
+        System.out.println("\n[Key Decision Factors]:");
+        for (String factor : exp.keyFactors()) {
+            System.out.println("   ✔ " + factor);
+        }
+
+        System.out.println("\n[Trade-Offs & Alternatives Considered]:");
+        for (String tradeOff : exp.tradeOffsConsidered()) {
+            System.out.println("   ↔ " + tradeOff);
+        }
+
+        // 5. Demonstrate Graceful AI Fallback when AI Provider is offline
+        System.out.println("\n================================================================================");
+        System.out.println("   RESILIENCE TEST: SIMULATED AI PROVIDER OUTAGE (GRACEFUL FALLBACK)");
+        System.out.println("================================================================================");
+        DecisionPipeline fallbackPipeline = DispatchDecisionPipelineFactory.createHybridAiPipeline(
+                new DispatchAIAdvisor("Mock-Faulty-AI", true) // Simulated offline
+        );
+
+        DecisionResult<DispatchAssignment> fallbackResult = executor.execute(fallbackPipeline, context);
+        System.out.println("Execution with Faulty AI: " + (fallbackResult.recommendation().item() != null ? "SUCCESS (Graceful Fallback)" : "FAILED"));
+        System.out.println("Fallback Recommendation : " + fallbackResult.recommendation().item().driverName());
+        System.out.println("Fallback Score          : " + String.format("%.4f", fallbackResult.score().value()));
+        System.out.println("Execution Duration      : " + fallbackResult.executionTime().toMillis() + " ms");
+
+        // 6. High-Throughput Benchmark Demonstration
+        System.out.println("\n================================================================================");
+        System.out.println("   HIGH-THROUGHPUT DECISION BENCHMARK (100 ITERATIONS, 20 DRIVERS)");
+        System.out.println("================================================================================");
+        DispatchBenchmarkRunner.BenchmarkResult benchDeterministic = DispatchBenchmarkRunner.runBenchmark(
+                "Deterministic Rules", DispatchDecisionPipelineFactory.createDeterministicPipeline(), executor, 100, 20);
+
+        DispatchBenchmarkRunner.BenchmarkResult benchAi = DispatchBenchmarkRunner.runBenchmark(
+                "Hybrid AI-Assisted", DispatchDecisionPipelineFactory.createHybridAiPipeline(), executor, 100, 20);
+
+        System.out.printf("%-22s | %-12s | %-12s | %-10s | %-10s | %-10s\n",
+                "Mode", "Throughput", "Total Time", "p50 (ms)", "p95 (ms)", "Avg Score");
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.printf("%-22s | %7.1f ops/s | %8d ms  | %8.2f ms | %8.2f ms | %8.3f\n",
+                benchDeterministic.modeName(), benchDeterministic.opsPerSec(), benchDeterministic.totalDuration().toMillis(),
+                benchDeterministic.p50Millis(), benchDeterministic.p95Millis(), benchDeterministic.avgScore());
+        System.out.printf("%-22s | %7.1f ops/s | %8d ms  | %8.2f ms | %8.2f ms | %8.3f\n",
+                benchAi.modeName(), benchAi.opsPerSec(), benchAi.totalDuration().toMillis(),
+                benchAi.p50Millis(), benchAi.p95Millis(), benchAi.avgScore());
+        System.out.println("================================================================================\n");
+    }
+}
