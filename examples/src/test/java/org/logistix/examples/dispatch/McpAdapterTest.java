@@ -3,12 +3,16 @@ package org.logistix.examples.dispatch;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.logistix.domain.action.ActionAuthorizationIssuer;
 import org.logistix.domain.action.ActionProposal;
 import org.logistix.domain.action.ActionResult;
 import org.logistix.domain.action.ActionStatus;
 import org.logistix.domain.action.ActionType;
 import org.logistix.domain.action.AuthorizationProvenance;
 import org.logistix.domain.action.AuthorizedAction;
+import org.logistix.domain.action.AuthorizedActionTestFactory;
+import org.logistix.domain.action.DefaultActionAuthorizationIssuer;
+import org.logistix.mcp.AuthorizationAuthorityRegistry;
 import org.logistix.mcp.McpActionExecutor;
 import org.logistix.mcp.McpToolDefinition;
 import org.logistix.mcp.MockMcpToolServer;
@@ -31,6 +35,8 @@ public class McpAdapterTest {
 
     private ToolRegistry toolRegistry;
     private MockMcpToolServer toolServer;
+    private AuthorizationAuthorityRegistry authorityRegistry;
+    private ActionAuthorizationIssuer authorizationIssuer;
     private McpActionExecutor executor;
     private Clock fixedClock;
 
@@ -39,7 +45,9 @@ public class McpAdapterTest {
         fixedClock = Clock.fixed(Instant.parse("2026-08-23T10:00:00Z"), ZoneOffset.UTC);
         toolRegistry = ToolRegistry.withStandardLogisticsTools();
         toolServer = new MockMcpToolServer();
-        executor = new McpActionExecutor(toolRegistry, toolServer, fixedClock);
+        authorityRegistry = AuthorizationAuthorityRegistry.withStandardAuthorities();
+        authorizationIssuer = new DefaultActionAuthorizationIssuer("LogistiX-Governance-Authority");
+        executor = new McpActionExecutor(toolRegistry, toolServer, authorityRegistry, fixedClock);
     }
 
     @Test
@@ -54,7 +62,7 @@ public class McpAdapterTest {
                 .correlationId("CORR-5501")
                 .build();
 
-        AuthorizedAction action = AuthorizedAction.issue(
+        AuthorizedAction action = authorizationIssuer.issue(
                 proposal,
                 "STANDARD-POLICY",
                 "LogistiX-Governance",
@@ -82,7 +90,7 @@ public class McpAdapterTest {
                 .correlationId("CORR-5502")
                 .build();
 
-        AuthorizedAction action = AuthorizedAction.issue(
+        AuthorizedAction action = authorizationIssuer.issue(
                 proposal,
                 "STANDARD-POLICY",
                 "LogistiX-Governance",
@@ -108,8 +116,8 @@ public class McpAdapterTest {
                 .parameter("newAppointmentTime", "2026-08-24T18:00:00Z")
                 .build();
 
-        AuthorizationProvenance fakeProv = new AuthorizationProvenance("Attacker", "INVALID_TOKEN", fixedClock.instant());
-        AuthorizedAction invalidAction = AuthorizedAction.createForTesting(
+        AuthorizationProvenance fakeProv = new AuthorizationProvenance("Unregistered-Attacker", "ISSUE-FAKE", "INVALID_TOKEN", "ACTION_EXECUTION", fixedClock.instant());
+        AuthorizedAction invalidAction = AuthorizedActionTestFactory.forgedAction(
                 proposal.actionId(),
                 proposal.actionType(),
                 proposal.targetResource(),
@@ -159,7 +167,7 @@ public class McpAdapterTest {
                 .parameter("shipmentId", "SHIP-5504") // Missing 'newAppointmentTime'
                 .build();
 
-        AuthorizedAction action = AuthorizedAction.issue(
+        AuthorizedAction action = authorizationIssuer.issue(
                 proposal,
                 "STANDARD-POLICY",
                 "LogistiX-Governance",
@@ -186,7 +194,7 @@ public class McpAdapterTest {
                 .parameter("unauthorizedPrivilegedField", "DROP_DATABASE")
                 .build();
 
-        AuthorizedAction action = AuthorizedAction.issue(
+        AuthorizedAction action = authorizationIssuer.issue(
                 proposal,
                 "STANDARD-POLICY",
                 "LogistiX-Governance",
@@ -215,7 +223,7 @@ public class McpAdapterTest {
                 .parameter("status", "DELIVERED")
                 .build();
 
-        AuthorizedAction action = AuthorizedAction.issue(
+        AuthorizedAction action = authorizationIssuer.issue(
                 proposal,
                 "STANDARD-POLICY",
                 "LogistiX-Governance",

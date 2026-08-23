@@ -4,20 +4,17 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
 
 /**
  * Immutable, tamper-evident class representing an Action that has been deterministically validated and
  * authorized by LogistiX Governance.
  *
- * Implemented as a final class with controlled factory instantiation to prevent unauthorized manual instantiation.
- * Enforces exact action binding via recursive parameter canonicalization, reference provenance verification,
- * and exact-boundary expiration evaluation.
+ * Implemented as a final class with package-private construction restricted to trusted AuthorizationIssuers.
+ * Arbitrary application callers and AI components are strictly prohibited from minting executable authorizations.
  */
 public final class AuthorizedAction {
 
@@ -35,7 +32,7 @@ public final class AuthorizedAction {
     private final Instant authorizedAt;
     private final Instant expiresAt;
 
-    private AuthorizedAction(
+    AuthorizedAction(
             String actionId,
             ActionType actionType,
             String targetResource,
@@ -61,7 +58,7 @@ public final class AuthorizedAction {
         this.correlationId = correlationId != null ? correlationId : actionId;
         this.idempotencyKey = idempotencyKey != null ? idempotencyKey : actionId;
         this.authorizedAt = authorizedAt != null ? authorizedAt : Instant.now();
-        this.expiresAt = expiresAt != null ? expiresAt : this.authorizedAt.plus(Duration.ofMinutes(5));
+        this.expiresAt = Objects.requireNonNull(expiresAt, "expiresAt must not be null");
 
         if (authorizationFingerprint == null || authorizationFingerprint.isBlank()) {
             this.authorizationFingerprint = computeFingerprint(
@@ -74,59 +71,9 @@ public final class AuthorizedAction {
     }
 
     /**
-     * Controlled factory method: Issues a valid, authentic AuthorizedAction from an ActionProposal.
+     * Package-private factory method accessible strictly to trusted domain/engine issuers.
      */
-    public static AuthorizedAction issue(
-            ActionProposal proposal,
-            String policyApplied,
-            String authorizedBy,
-            Duration validityDuration,
-            Instant issuedAt
-    ) {
-        Objects.requireNonNull(proposal, "proposal must not be null");
-        Instant start = issuedAt != null ? issuedAt : Instant.now();
-        Duration ttl = (validityDuration != null && !validityDuration.isNegative() && !validityDuration.isZero())
-                ? validityDuration : Duration.ofMinutes(5);
-        Instant expiration = start.plus(ttl);
-        String token = "AUTH-LGX-" + UUID.randomUUID();
-        AuthorizationProvenance prov = AuthorizationProvenance.of(authorizedBy, start);
-
-        String fingerprint = computeFingerprint(
-                proposal.actionType(),
-                proposal.targetResource(),
-                proposal.parameters(),
-                policyApplied != null ? policyApplied : "DEFAULT_POLICY",
-                proposal.correlationId(),
-                proposal.idempotencyKey(),
-                expiration,
-                prov.issuerId()
-        );
-
-        return new AuthorizedAction(
-                proposal.actionId(),
-                proposal.actionType(),
-                proposal.targetResource(),
-                proposal.parameters(),
-                token,
-                fingerprint,
-                prov,
-                authorizedBy != null ? authorizedBy : "LogistiX-Governance",
-                policyApplied != null ? policyApplied : "DEFAULT_POLICY",
-                proposal.correlationId(),
-                proposal.idempotencyKey(),
-                start,
-                expiration
-        );
-    }
-
-    public static AuthorizedAction of(ActionProposal proposal, String policyApplied, String authorizedBy) {
-        return issue(proposal, policyApplied, authorizedBy, Duration.ofMinutes(5), Instant.now());
-    }
-
-    /**
-     * Testing factory for synthesizing adversarial edge cases (e.g. forged tokens, tampered fingerprints).
-     */
-    public static AuthorizedAction createForTesting(
+    static AuthorizedAction createInternal(
             String actionId,
             ActionType actionType,
             String targetResource,
@@ -143,8 +90,8 @@ public final class AuthorizedAction {
     ) {
         return new AuthorizedAction(
                 actionId, actionType, targetResource, parameters, authorizationToken,
-                authorizationFingerprint, provenance != null ? provenance : AuthorizationProvenance.of(authorizedBy),
-                authorizedBy, policyApplied, correlationId, idempotencyKey, authorizedAt, expiresAt
+                authorizationFingerprint, provenance, authorizedBy, policyApplied,
+                correlationId, idempotencyKey, authorizedAt, expiresAt
         );
     }
 

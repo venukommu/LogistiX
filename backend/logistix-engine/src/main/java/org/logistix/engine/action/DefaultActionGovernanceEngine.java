@@ -2,12 +2,14 @@ package org.logistix.engine.action;
 
 import org.logistix.domain.action.ActionApprovalGrant;
 import org.logistix.domain.action.ActionAuditEntry;
+import org.logistix.domain.action.ActionAuthorizationIssuer;
 import org.logistix.domain.action.ActionDecision;
 import org.logistix.domain.action.ActionProposal;
 import org.logistix.domain.action.ActionResult;
 import org.logistix.domain.action.ActionStatus;
 import org.logistix.domain.action.ActionTelemetry;
 import org.logistix.domain.action.AuthorizedAction;
+import org.logistix.domain.action.DefaultActionAuthorizationIssuer;
 import org.logistix.domain.ports.ActionExecutor;
 
 import java.time.Clock;
@@ -25,13 +27,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * - Exact action binding via recursive SHA-256 fingerprinting
  * - Clock-based exact boundary expiration TTL evaluation (now >= expiresAt)
  * - Atomic idempotency reservation preventing concurrency race conditions
- * - Single-use proposal-fingerprint binding for supervisor approval grants
- * - Reference authorization provenance tracking
+ * - Trusted in-process ActionAuthorizationIssuer integration
+ * - Verified ActionApprovalGrant provenance and single-use consumption
  */
 public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
 
     private final ActionPolicy defaultPolicy;
     private final InMemoryActionAuditStore auditStore;
+    private final ActionAuthorizationIssuer authorizationIssuer;
     private final Clock clock;
     private final Duration authorizationTtl;
 
@@ -42,11 +45,11 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
     private volatile ActionTelemetry lastTelemetry;
 
     public DefaultActionGovernanceEngine() {
-        this(ActionPolicy.standardOperationalPolicy(), new InMemoryActionAuditStore(), Clock.systemUTC(), Duration.ofMinutes(5));
+        this(ActionPolicy.standardOperationalPolicy(), new InMemoryActionAuditStore(), new DefaultActionAuthorizationIssuer(), Clock.systemUTC(), Duration.ofMinutes(5));
     }
 
     public DefaultActionGovernanceEngine(ActionPolicy defaultPolicy, InMemoryActionAuditStore auditStore) {
-        this(defaultPolicy, auditStore, Clock.systemUTC(), Duration.ofMinutes(5));
+        this(defaultPolicy, auditStore, new DefaultActionAuthorizationIssuer(), Clock.systemUTC(), Duration.ofMinutes(5));
     }
 
     public DefaultActionGovernanceEngine(
@@ -55,8 +58,19 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
             Clock clock,
             Duration authorizationTtl
     ) {
+        this(defaultPolicy, auditStore, new DefaultActionAuthorizationIssuer(), clock, authorizationTtl);
+    }
+
+    public DefaultActionGovernanceEngine(
+            ActionPolicy defaultPolicy,
+            InMemoryActionAuditStore auditStore,
+            ActionAuthorizationIssuer authorizationIssuer,
+            Clock clock,
+            Duration authorizationTtl
+    ) {
         this.defaultPolicy = defaultPolicy != null ? defaultPolicy : ActionPolicy.standardOperationalPolicy();
         this.auditStore = auditStore != null ? auditStore : new InMemoryActionAuditStore();
+        this.authorizationIssuer = authorizationIssuer != null ? authorizationIssuer : new DefaultActionAuthorizationIssuer();
         this.clock = clock != null ? clock : Clock.systemUTC();
         this.authorizationTtl = (authorizationTtl != null && !authorizationTtl.isNegative() && !authorizationTtl.isZero())
                 ? authorizationTtl : Duration.ofMinutes(5);
@@ -64,6 +78,10 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
 
     public InMemoryActionAuditStore getAuditStore() {
         return auditStore;
+    }
+
+    public ActionAuthorizationIssuer getAuthorizationIssuer() {
+        return authorizationIssuer;
     }
 
     public Clock getClock() {
@@ -154,9 +172,9 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
             return decision;
         }
 
-        // 7. Deterministic Authorization Approval with Fingerprint, Provenance and Expiration TTL
+        // 7. Mint Authentic AuthorizedAction strictly through the trusted ActionAuthorizationIssuer
         Instant now = clock.instant();
-        AuthorizedAction authorizedAction = AuthorizedAction.issue(
+        AuthorizedAction authorizedAction = authorizationIssuer.issue(
                 proposal,
                 activePolicy.policyId(),
                 "LogistiX-Governance-Authority",
@@ -180,7 +198,15 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
 
         List<String> violations = new ArrayList<>();
 
-        // Single-use consumption check
+        // 1. Approval Provenance Validation
+        if (grant.provenance() == null || !grant.provenance().isValid()) {
+            violations.add(String.format("Approval grant [%s] contains missing or invalid approval provenance", grant.grantId()));
+            ActionDecision decision = ActionDecision.rejected(proposal, "Approval grant missing valid provenance", violations);
+            recordDecision(proposal, activePolicy, decision);
+            return decision;
+        }
+
+        // 2. Single-use consumption check
         if (grant.isConsumed()) {
             violations.add(String.format("Approval grant [%s] has already been consumed or revoked", grant.grantId()));
             ActionDecision decision = ActionDecision.rejected(proposal, "Approval grant already consumed (replay rejected)", violations);
@@ -188,7 +214,7 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
             return decision;
         }
 
-        // Verify grant matches proposal action ID, target and proposal fingerprint
+        // 3. Verify grant matches proposal action ID, target and proposal fingerprint
         if (!grant.isMatchingProposal(proposal)) {
             violations.add(String.format("Approval grant [%s] does not match proposal target, parameters or action ID", grant.grantId()));
             ActionDecision decision = ActionDecision.rejected(proposal, "Approval grant proposal tampering or mismatch detected", violations);
@@ -196,7 +222,7 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
             return decision;
         }
 
-        // Atomically consume the approval grant
+        // 4. Atomically consume the approval grant
         if (!grant.markConsumed()) {
             violations.add("Approval grant consumption race condition detected");
             ActionDecision decision = ActionDecision.rejected(proposal, "Approval grant already consumed concurrently", violations);
@@ -204,7 +230,7 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
             return decision;
         }
 
-        // Revalidate HARD constraints
+        // 5. Revalidate HARD constraints
         if (!activePolicy.hardConstraintValidator().test(proposal)) {
             violations.add("Revalidation failed: Proposal violates HARD operational constraint");
             ActionDecision decision = ActionDecision.rejected(proposal, "HARD constraint violation during revalidation", violations);
@@ -212,9 +238,9 @@ public class DefaultActionGovernanceEngine implements ActionGovernanceEngine {
             return decision;
         }
 
-        // Issue fresh AuthorizedAction bound to the supervisor's grant
+        // 6. Mint fresh AuthorizedAction bound to the supervisor's grant via trusted issuer
         Instant now = clock.instant();
-        AuthorizedAction authorizedAction = AuthorizedAction.issue(
+        AuthorizedAction authorizedAction = authorizationIssuer.issue(
                 proposal,
                 activePolicy.policyId(),
                 grant.approvedBy(),

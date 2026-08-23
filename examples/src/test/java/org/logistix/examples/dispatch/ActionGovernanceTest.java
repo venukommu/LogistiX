@@ -5,7 +5,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.logistix.domain.action.ActionApprovalGrant;
-import org.logistix.domain.action.ActionAuditEntry;
+import org.logistix.domain.action.ActionApprovalIssuer;
+import org.logistix.domain.action.ActionAuthorizationIssuer;
 import org.logistix.domain.action.ActionDecision;
 import org.logistix.domain.action.ActionProposal;
 import org.logistix.domain.action.ActionProposalSource;
@@ -13,8 +14,11 @@ import org.logistix.domain.action.ActionResult;
 import org.logistix.domain.action.ActionStatus;
 import org.logistix.domain.action.ActionTelemetry;
 import org.logistix.domain.action.ActionType;
-import org.logistix.domain.action.AuthorizationProvenance;
 import org.logistix.domain.action.AuthorizedAction;
+import org.logistix.domain.action.AuthorizedActionTestFactory;
+import org.logistix.domain.action.DefaultActionApprovalIssuer;
+import org.logistix.domain.action.DefaultActionAuthorizationIssuer;
+import org.logistix.domain.action.TrustedApproverRegistry;
 import org.logistix.engine.action.ActionPolicy;
 import org.logistix.engine.action.DefaultActionGovernanceEngine;
 import org.logistix.engine.action.InMemoryActionAuditStore;
@@ -29,7 +33,6 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -39,11 +42,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Sprint 10.2: Hardened Action Governance Test Suite with Provenance, Concurrency, and Immutability Checks.
+ * Sprint 10.2.1: Hardened Action Governance Test Suite with Trusted Issuers, Provenance, and Concurrency Checks.
  */
 public class ActionGovernanceTest {
 
     private InMemoryActionAuditStore auditStore;
+    private ActionAuthorizationIssuer authorizationIssuer;
+    private ActionApprovalIssuer approvalIssuer;
     private DefaultActionGovernanceEngine governanceEngine;
     private MockMcpToolServer mockToolServer;
     private McpActionExecutor mcpExecutor;
@@ -53,9 +58,12 @@ public class ActionGovernanceTest {
     void setUp() {
         fixedClock = Clock.fixed(Instant.parse("2026-08-23T10:00:00Z"), ZoneOffset.UTC);
         auditStore = new InMemoryActionAuditStore();
+        authorizationIssuer = new DefaultActionAuthorizationIssuer("LogistiX-Governance-Authority");
+        approvalIssuer = new DefaultActionApprovalIssuer(TrustedApproverRegistry.withStandardLogisticsApprovers());
         governanceEngine = new DefaultActionGovernanceEngine(
                 ActionPolicy.standardOperationalPolicy(),
                 auditStore,
+                authorizationIssuer,
                 fixedClock,
                 Duration.ofMinutes(5)
         );
@@ -162,7 +170,7 @@ public class ActionGovernanceTest {
             ActionDecision initialDecision = governanceEngine.evaluate(highRiskProposal);
             assertThat(initialDecision.isApprovalRequired()).isTrue();
 
-            ActionApprovalGrant grant = ActionApprovalGrant.forProposal(
+            ActionApprovalGrant grant = approvalIssuer.issueApproval(
                     highRiskProposal,
                     "Supervisor-Jane",
                     "Approved critical route reschedule due to highway closure"
@@ -195,7 +203,7 @@ public class ActionGovernanceTest {
                     .confidence(0.92)
                     .build();
 
-            ActionApprovalGrant grant = ActionApprovalGrant.forProposal(
+            ActionApprovalGrant grant = approvalIssuer.issueApproval(
                     proposal,
                     "Supervisor-Bob",
                     "One-time emergency approval"
@@ -260,7 +268,7 @@ public class ActionGovernanceTest {
             AuthorizedAction validAuth = decision.authorizedAction().get();
 
             // Attacker creates mutated action swapping appointment time but preserving the original fingerprint
-            AuthorizedAction tamperedAuth = AuthorizedAction.createForTesting(
+            AuthorizedAction tamperedAuth = AuthorizedActionTestFactory.forgedAction(
                     validAuth.actionId(),
                     validAuth.actionType(),
                     validAuth.targetResource(),
@@ -328,7 +336,7 @@ public class ActionGovernanceTest {
                     .parameter("nestedOptions", Map.of("key1", "val1"))
                     .build();
 
-            AuthorizedAction action = AuthorizedAction.issue(
+            AuthorizedAction action = authorizationIssuer.issue(
                     proposal,
                     "POLICY",
                     "Governance",

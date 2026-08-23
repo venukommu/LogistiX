@@ -18,7 +18,7 @@ import java.util.Optional;
  *
  * Implements the outbound technology-neutral ActionExecutor port with hardened security checks:
  * 1. Accepts ONLY an AuthorizedAction that has passed deterministic LogistiX governance.
- * 2. Enforces reference AuthorizationProvenance validation (guaranteeing issuer provenance).
+ * 2. Enforces in-process AuthorizationProvenance validation against registered AuthorizationAuthorities.
  * 3. Enforces cryptographic SHA-256 fingerprint verification (tamper-evident integrity).
  * 4. Enforces exact-boundary authorization TTL expiration validity (now >= expiresAt).
  * 5. Resolves tools ONLY from the controlled, frozen ToolRegistry, prohibiting arbitrary tool execution.
@@ -28,19 +28,30 @@ public class McpActionExecutor implements ActionExecutor {
 
     private final ToolRegistry toolRegistry;
     private final MockMcpToolServer toolServer;
+    private final AuthorizationAuthorityRegistry authorityRegistry;
     private final Clock clock;
 
     public McpActionExecutor() {
-        this(ToolRegistry.withStandardLogisticsTools(), new MockMcpToolServer(), Clock.systemUTC());
+        this(ToolRegistry.withStandardLogisticsTools(), new MockMcpToolServer(), AuthorizationAuthorityRegistry.withStandardAuthorities(), Clock.systemUTC());
     }
 
     public McpActionExecutor(ToolRegistry toolRegistry, MockMcpToolServer toolServer) {
-        this(toolRegistry, toolServer, Clock.systemUTC());
+        this(toolRegistry, toolServer, AuthorizationAuthorityRegistry.withStandardAuthorities(), Clock.systemUTC());
     }
 
     public McpActionExecutor(ToolRegistry toolRegistry, MockMcpToolServer toolServer, Clock clock) {
+        this(toolRegistry, toolServer, AuthorizationAuthorityRegistry.withStandardAuthorities(), clock);
+    }
+
+    public McpActionExecutor(
+            ToolRegistry toolRegistry,
+            MockMcpToolServer toolServer,
+            AuthorizationAuthorityRegistry authorityRegistry,
+            Clock clock
+    ) {
         this.toolRegistry = toolRegistry != null ? toolRegistry : ToolRegistry.withStandardLogisticsTools();
         this.toolServer = toolServer != null ? toolServer : new MockMcpToolServer();
+        this.authorityRegistry = authorityRegistry != null ? authorityRegistry : AuthorizationAuthorityRegistry.withStandardAuthorities();
         this.clock = clock != null ? clock : Clock.systemUTC();
     }
 
@@ -52,6 +63,10 @@ public class McpActionExecutor implements ActionExecutor {
         return toolServer;
     }
 
+    public AuthorizationAuthorityRegistry getAuthorityRegistry() {
+        return authorityRegistry;
+    }
+
     public Clock getClock() {
         return clock;
     }
@@ -60,14 +75,15 @@ public class McpActionExecutor implements ActionExecutor {
     public ActionResult execute(AuthorizedAction action) {
         Objects.requireNonNull(action, "AuthorizedAction must not be null");
 
-        // 1. Authorization Provenance & Token Invariant Check
+        // 1. Authorization Provenance & Authority Invariant Check
         if (action.provenance() == null || !action.provenance().isValid() ||
+            !authorityRegistry.isRegisteredAuthority(action.provenance().issuerAuthorityId()) ||
             action.authorizationToken() == null || !action.authorizationToken().startsWith("AUTH-LGX-")) {
             return ActionResult.failure(
                     action.actionId(),
                     "AUTH-PROVENANCE-ERR",
-                    "Missing or invalid LogistiX authorization provenance token",
-                    "Security Violation: Attempted to execute action without valid LogistiX authorization provenance",
+                    "Missing, invalid, or untrusted LogistiX authorization provenance token",
+                    "Security Violation: Attempted to execute action without verified LogistiX authorization provenance",
                     Duration.ZERO
             );
         }

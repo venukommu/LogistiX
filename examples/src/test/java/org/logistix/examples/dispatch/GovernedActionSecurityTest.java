@@ -5,6 +5,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.logistix.domain.action.ActionApprovalGrant;
+import org.logistix.domain.action.ActionApprovalGrantTestFactory;
+import org.logistix.domain.action.ActionApprovalIssuer;
+import org.logistix.domain.action.ActionAuthorizationIssuer;
 import org.logistix.domain.action.ActionDecision;
 import org.logistix.domain.action.ActionProposal;
 import org.logistix.domain.action.ActionProposalSource;
@@ -13,9 +16,14 @@ import org.logistix.domain.action.ActionStatus;
 import org.logistix.domain.action.ActionType;
 import org.logistix.domain.action.AuthorizationProvenance;
 import org.logistix.domain.action.AuthorizedAction;
+import org.logistix.domain.action.AuthorizedActionTestFactory;
+import org.logistix.domain.action.DefaultActionApprovalIssuer;
+import org.logistix.domain.action.DefaultActionAuthorizationIssuer;
+import org.logistix.domain.action.TrustedApproverRegistry;
 import org.logistix.engine.action.ActionPolicy;
 import org.logistix.engine.action.DefaultActionGovernanceEngine;
 import org.logistix.engine.action.InMemoryActionAuditStore;
+import org.logistix.mcp.AuthorizationAuthorityRegistry;
 import org.logistix.mcp.McpActionExecutor;
 import org.logistix.mcp.MockMcpToolServer;
 import org.logistix.mcp.ToolRegistry;
@@ -29,10 +37,12 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Sprint 10.2: Complete Security Test Matrix for Governed AI Actions.
+ * Sprint 10.2.1: Complete Security Test Matrix for Governed AI Actions with Closed Issuance.
  */
 public class GovernedActionSecurityTest {
 
+    private ActionAuthorizationIssuer authorizationIssuer;
+    private ActionApprovalIssuer approvalIssuer;
     private DefaultActionGovernanceEngine governanceEngine;
     private MockMcpToolServer toolServer;
     private McpActionExecutor mcpExecutor;
@@ -41,14 +51,22 @@ public class GovernedActionSecurityTest {
     @BeforeEach
     void setUp() {
         fixedClock = Clock.fixed(Instant.parse("2026-08-23T10:00:00Z"), ZoneOffset.UTC);
+        authorizationIssuer = new DefaultActionAuthorizationIssuer("LogistiX-Governance-Authority");
+        approvalIssuer = new DefaultActionApprovalIssuer(TrustedApproverRegistry.withStandardLogisticsApprovers());
         governanceEngine = new DefaultActionGovernanceEngine(
                 ActionPolicy.standardOperationalPolicy(),
                 new InMemoryActionAuditStore(),
+                authorizationIssuer,
                 fixedClock,
                 Duration.ofMinutes(5)
         );
         toolServer = new MockMcpToolServer();
-        mcpExecutor = new McpActionExecutor(ToolRegistry.withStandardLogisticsTools(), toolServer, fixedClock);
+        mcpExecutor = new McpActionExecutor(
+                ToolRegistry.withStandardLogisticsTools(),
+                toolServer,
+                AuthorizationAuthorityRegistry.withStandardAuthorities(),
+                fixedClock
+        );
     }
 
     @Nested
@@ -138,8 +156,8 @@ public class GovernedActionSecurityTest {
         @Test
         @DisplayName("TEST 1 & 2: Forged authorization and token prefix attack (AUTH-fake) is rejected by executor")
         void testForgedTokenRejectedByMcpAdapter() {
-            AuthorizationProvenance fakeProv = new AuthorizationProvenance("Attacker", "PROV-LGX-FAKE00000000", fixedClock.instant());
-            AuthorizedAction forged = AuthorizedAction.createForTesting(
+            AuthorizationProvenance fakeProv = new AuthorizationProvenance("Unregistered-Attacker", "ISSUE-FAKE", "PROV-LGX-FAKE00000000", "ACTION_EXECUTION", fixedClock.instant());
+            AuthorizedAction forged = AuthorizedActionTestFactory.forgedAction(
                     "FORGED-001",
                     ActionType.CHANGE_DELIVERY_APPOINTMENT,
                     "SHIP-9999",
@@ -178,7 +196,7 @@ public class GovernedActionSecurityTest {
             ActionDecision decision = governanceEngine.evaluate(proposal);
             AuthorizedAction validAuth = decision.authorizedAction().get();
 
-            AuthorizedAction swappedTargetAuth = AuthorizedAction.createForTesting(
+            AuthorizedAction swappedTargetAuth = AuthorizedActionTestFactory.forgedAction(
                     validAuth.actionId(),
                     validAuth.actionType(),
                     "SHIP-UNAUTHORIZED-VICTIM", // Tampered target
@@ -213,7 +231,7 @@ public class GovernedActionSecurityTest {
                     .confidence(0.90)
                     .build();
 
-            ActionApprovalGrant grant = ActionApprovalGrant.forProposal(
+            ActionApprovalGrant grant = approvalIssuer.issueApproval(
                     originalProposal,
                     "Manager-Alice",
                     "Approved for SHIP-ORIGINAL"
