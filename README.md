@@ -8,7 +8,7 @@
 [![Spring AI](https://img.shields.io/badge/Spring_AI-1.0.0--M6-blue.svg?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Tests](https://img.shields.io/badge/Tests-92%2F92_Passing-brightgreen.svg)]()
-[![Release](https://img.shields.io/badge/Release-v0.1.0-blueviolet.svg)](https://github.com/venukommu/LogistiX/releases/tag/v0.1.0)
+[![Reference Release](https://img.shields.io/badge/Reference_Release-v0.1.0-blueviolet.svg)](https://github.com/venukommu/LogistiX/releases/tag/v0.1.0)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 ---
@@ -17,15 +17,18 @@
 
 **LogistiX** is an open-source Java 21 Decision Intelligence framework for building explainable, governed, AI-assisted enterprise decision systems.
 
-In mission-critical operations—such as commercial freight dispatch, dynamic routing, warehouse door allocation, and supply chain scheduling—raw AI models and autonomous LLM agents cannot be granted unconstrained write access or final decision authority.
+In mission-critical operations—such as commercial freight dispatch, dynamic routing, warehouse door allocation, and supply chain scheduling—raw AI models and autonomous LLM agents cannot be granted unconstrained write access or unilateral decision authority.
 
-LogistiX unites **deterministic operational policies** (hard constraints, compliance rules, mathematical scoring) with **probabilistic intelligence** (enterprise knowledge grounding, LLM reasoning) and **cryptographically verifiable action governance**:
+LogistiX unites **deterministic operational policies** (hard constraints, compliance rules, mathematical scoring) with **probabilistic intelligence** (enterprise knowledge grounding, LLM reasoning) and **tamper-evident action governance**:
 
 ```
 Operational Data ──► Deterministic Constraints ──► Business Rules ──► Multi-Criteria Scoring
                                                                                │
 Enterprise Systems ◄── MCP / Action Executor ◄── LogistiX Governance ◄── AI Advisory & Policy
 ```
+
+> [!NOTE]
+> **Version Baseline**: `v0.1.0` represents the frozen Git reference architecture checkpoint. Maven development artifacts in this repository use `0.1.0-SNAPSHOT` as public artifact publication has not yet been established.
 
 ---
 
@@ -39,7 +42,7 @@ Enterprise Systems ◄── MCP / Action Executor ◄── LogistiX Governance
 2. **HARD Constraints are Inviolable**: Physical, safety, and regulatory constraints (Hours of Service, weight limits, hazardous materials certifications) are evaluated deterministically. AI cannot resurrect disqualified candidates.
 3. **Knowledge is Evidence, Not Authority**: Retrieved enterprise documents (`KnowledgeProvider`) are treated as untrusted reference context, protected against prompt injection and hallucinated citations.
 4. **Deterministic Policy Retains Authority**: Final rankings, trade-off reconciliations, and action thresholds are computed by deterministic policy evaluators.
-5. **Closed Authorization Boundary**: Outbound enterprise tools execute only tokenized, tamper-evident `AuthorizedAction` artifacts minted by trusted, frozen LogistiX issuance authorities.
+5. **Closed Authorization Boundary**: Outbound enterprise tools execute only immutable, tamper-evident `AuthorizedAction` artifacts minted by trusted LogistiX issuance components.
 6. **MCP is Connectivity, Not Governance**: The Model Context Protocol (MCP) acts strictly as an outbound execution adapter. MCP cannot formulate decisions, own trust registries, or bypass LogistiX governance.
 7. **Every Decision is Auditable**: Telemetry is segregated (`AITelemetry`, `KnowledgeTelemetry`, `ActionTelemetry`), and every outcome produces a multi-layered explainability report.
 
@@ -61,72 +64,65 @@ Enterprises face a fundamental dilemma when adopting AI for operational decision
 
 ## 🏛️ Complete System Architecture
 
-```mermaid
-flowchart TD
-    subgraph Client ["1. Invocation Layer"]
-        REQ["<b>DecisionRequest</b> / <b>LogistiX.decision()</b>"]
-    end
-
-    subgraph DeterministicCore ["2. Deterministic Feasibility & Scoring Engine (logistix-engine)"]
-        CTX["<b>DecisionContext</b> & <b>FactBag</b>"]
-        FEAS["<b>ConstraintEngine</b><br/><i>(HARD Compliance & Physical Invariants)</i>"]
-        RULES["<b>RuleEngine</b><br/><i>(Soft Incentives & Operational Rules)</i>"]
-        SCORE["<b>ScoringEngine</b><br/><i>(Multi-Criteria Weighted Evaluation)</i>"]
-        TOPN["<b>Top-N Feasible Candidates</b>"]
-
-        CTX --> FEAS
-        FEAS -- Eligible Only --> RULES
-        RULES --> SCORE
-        SCORE --> TOPN
-    end
-
-    subgraph IntelligenceBoundary ["3. Intelligence Grounding & Advisory Layer"]
-        RAG["<b>KnowledgeProvider (logistix-rag)</b><br/><i>(Retrieved Untrusted Reference Evidence)</i>"]
-        AI["<b>Spring AI Adapter (logistix-ai)</b><br/><i>(Single-Call Batched LLM Evaluation)</i>"]
-
-        TOPN --> RAG
-        TOPN --> AI
-        RAG -- Evidence Docs --> AI
-    end
-
-    subgraph GovernanceBoundary ["4. Decision Policy & Action Governance Boundary"]
-        POL["<b>Deterministic Decision Policy</b><br/><i>(Reconciles Deterministic Scores with AI Signals)</i>"]
-        PROP["<b>ActionProposal</b><br/><i>(Unverified Suggestion)</i>"]
-        GOV["<b>ActionGovernanceEngine</b><br/><i>(Policy Evaluation & Risk Classification)</i>"]
-        
-        AI -- Advisory Signal --> POL
-        TOPN --> POL
-        POL --> PROP
-        PROP --> GOV
-    end
-
-    subgraph IssuanceLayer ["5. Trusted Authorization Issuance Boundary"]
-        AUTH_REG["<b>AuthorizationAuthorityRegistry</b><br/><i>(Frozen In-Process Trust Registry)</i>"]
-        APP_REG["<b>TrustedApproverRegistry</b><br/><i>(Frozen In-Process Approver Registry)</i>"]
-        ISSUER["<b>ActionAuthorizationIssuer</b><br/><i>(Mints Tamper-Evident AuthorizedAction)</i>"]
-        APP_ISSUER["<b>ActionApprovalIssuer</b><br/><i>(Mints ActionApprovalGrant)</i>"]
-
-        GOV -- APPROVED --> ISSUER
-        GOV -- APPROVAL_REQUIRED --> APP_ISSUER
-        APP_ISSUER -- Supervisor Approval --> GOV
-        AUTH_REG -. Validates .-> ISSUER
-        APP_REG -. Validates .-> APP_ISSUER
-    end
-
-    subgraph ExecutionLayer ["6. Outbound Connectivity & Execution Boundary (logistix-mcp)"]
-        AUTH_ACTION["<b>AuthorizedAction</b><br/><i>(SHA-256 Fingerprint + Provenance + TTL)</i>"]
-        EXEC["<b>McpActionExecutor</b><br/><i>(Idempotency & Expiry Guardrails)</i>"]
-        TOOLS["<b>ToolRegistry</b><br/><i>(Frozen Enterprise Tool Catalog)</i>"]
-        MOCK_MCP["<b>Enterprise Systems / TMS / DB</b>"]
-
-        ISSUER --> AUTH_ACTION
-        AUTH_ACTION --> EXEC
-        TOOLS --> EXEC
-        EXEC --> MOCK_MCP
-    end
-
-    REQ --> CTX
 ```
+                         OPERATIONAL INPUT
+                                │
+                                ▼
+                        HARD CONSTRAINTS
+                                │
+                                ▼
+                         BUSINESS RULES
+                                │
+                                ▼
+                      DETERMINISTIC SCORING
+                                │
+                                ▼
+                              TOP-N
+                                │
+                   ┌────────────┴────────────┐
+                   ▼                         ▼
+              KNOWLEDGE / RAG            SPRING AI
+                   │                         │
+                   ▼                         ▼
+                EVIDENCE                AI ADVISORY
+                   │                         │
+                   └────────────┬────────────┘
+                                ▼
+                      DETERMINISTIC POLICY
+                                │
+                                ▼
+                         ACTION PROPOSAL
+                                │
+                                ▼
+                       LOGISTIX GOVERNANCE
+                                │
+                     ┌──────────┼──────────┐
+                     ▼          ▼          ▼
+                  REJECT     APPROVAL    APPROVE
+                                             │
+                                             ▼
+                                    AUTHORIZED ACTION
+                                             │
+                                             ▼
+                                       ACTION EXECUTOR
+                                             │
+                                             ▼
+                                        MCP ADAPTER
+                                             │
+                                             ▼
+                                        TOOL REGISTRY
+                                             │
+                                             ▼
+                                      ENTERPRISE TOOL
+                                             │
+                                             ▼
+                                           AUDIT
+```
+
+### Inviolable Architecture Boundaries:
+- **Knowledge $\neq$ Decision Authority**: Knowledge documents provide reference context and evidence, never direct policy enforcement.
+- **AI $\neq$ Authorization Authority**: AI proposals (`ActionProposal`) have zero direct authority and cannot be accepted by execution adapters.
+- **MCP $\neq$ Governance**: MCP is strictly an outbound execution connectivity adapter; it cannot formulate decisions or create authority.
 
 ---
 
@@ -144,7 +140,7 @@ LogistiX supports four distinct operational execution modes:
 1. **`RULES_ONLY`**: Pure deterministic pipeline. Zero AI invocations, sub-millisecond execution latency, 100% mathematical reproducibility.
 2. **`HYBRID_AI`**: Top-N feasible candidates are evaluated by Spring AI in **exactly one batched call**. Contextual signals (weather risk, traffic patterns) inform deterministic policy reconcilers.
 3. **`KNOWLEDGE_AWARE`**: Enterprise operating guidelines and SOPs are retrieved via `KnowledgeProvider`, verified against prompt injection, and supplied as citation-bound evidence to the AI prompt.
-4. **`GOVERNED_ACTION`**: Actions proposed by AI or automated policies undergo deterministic risk checks, generating tamper-evident `AuthorizedAction` tokens before outbound MCP tool execution.
+4. **`GOVERNED_ACTION`**: Actions proposed by AI or automated policies undergo deterministic risk checks, generating tamper-evident `AuthorizedAction` records before outbound MCP tool execution.
 
 ---
 
@@ -207,6 +203,32 @@ Shipment + Candidate Fleet
 
 ---
 
+## 📚 Knowledge-Aware Decision Intelligence
+
+The `logistix-rag` module provides knowledge ingestion and retrieval abstraction:
+
+```
+Query Text ──► KnowledgeProvider ──► Retrieved GroundingDocuments ──► PromptBuilder ──► Spring AI
+```
+
+- **Untrusted Reference Data**: Ingested enterprise documents (SOPs, corridor guidelines, route alerts) are treated strictly as untrusted reference context. System instructions prohibit embedded instructions from overriding hard constraints.
+- **Reference Implementation**: LogistiX provides `InMemoryKnowledgeProvider` as the deterministic reference implementation.
+- **Provider-Neutral Extension Point**: The `KnowledgeProvider` contract serves as an architectural port for future external adapters (vector databases, semantic indices).
+
+---
+
+## 🤖 Spring AI Integration
+
+The `logistix-ai` module bridges LogistiX with the Spring AI ecosystem via the technology-neutral `AIProvider` SPI:
+
+- **Technology-Neutral Domain**: The core domain (`logistix-domain`) has zero dependencies on Spring or Spring AI.
+- **Reference Providers**:
+  - `MockDispatchAIProvider`: Deterministic, in-memory test double used for unit tests, benchmarks, and offline demonstrations.
+  - `SpringAIDispatchAIProvider`: Adapts Spring AI's `ChatModel` to structured `DispatchAIRequest` $\to$ `BatchedDispatchAIAdvice` schemas.
+- **Fail-Safe Fallback**: If an LLM times out or encounters network/parsing errors, LogistiX triggers graceful fallback to deterministic scoring policies.
+
+---
+
 ## 🛡️ Governed AI Actions & MCP Connectivity
 
 LogistiX enforces a technology-neutral action authorization boundary:
@@ -220,19 +242,20 @@ ActionGovernanceEngine ──► Evaluates Hard Constraints, Policies, and Risk 
       └── APPROVED           ──► ActionAuthorizationIssuer Mints AuthorizedAction
                                        ↓
                                 McpActionExecutor
-                                       ├── Verify Signature & Canonical Fingerprint
+                                       ├── Verify Authorization Provenance
+                                       ├── Verify Canonical SHA-256 Fingerprint
                                        ├── Verify Active Timestamp (now < expiresAt)
                                        ├── Atomic Idempotency Check (Prevent Replay)
                                        └── Dispatch to Frozen ToolRegistry
                                                 ↓
-                                      MockMcpToolServer / Enterprise TMS
+                                      MockMcpToolServer / Enterprise Systems
 ```
 
 ### Inviolable Security Guarantees:
 - **Canonical SHA-256 Fingerprint**: Every `AuthorizedAction` binds recursively canonicalized parameters, target resource, issuer identity, correlation ID, idempotency key, and TTL timestamp. Any runtime parameter tampering invalidates the fingerprint.
 - **Single Authority Registry Invariant**: There is strictly **one** `AuthorizationAuthorityRegistry` per application context, configured and frozen at startup by core security (`logistix-spring-boot-starter`). MCP consumes this registry and cannot own or duplicate authorities.
 - **Safe Approver Defaults**: If no human approvers are configured, LogistiX provisions an empty, frozen `TrustedApproverRegistry`, rejecting all unconfigured approvals (no wildcard supervisors).
-- **Exact-Boundary TTL**: Authorizations carry an explicit `expiresAt` instant (default 5 minutes). Expired tokens are rejected at execution time.
+- **Exact-Boundary TTL**: Authorizations carry an explicit `expiresAt` instant (default 5 minutes). Expired actions are rejected at execution time.
 - **Atomic Idempotency**: Duplicate executions with the same idempotency key are rejected atomically.
 
 ---
@@ -356,25 +379,9 @@ if (result.isSuccess()) {
 }
 ```
 
-### 2. Registering a Custom Hard Constraint
+### 2. Proposing & Governing an Action
 ```java
-public class HoursOfServiceConstraint implements ConstraintChecker<Driver, Shipment> {
-    @Override
-    public boolean isFeasible(Driver driver, Shipment shipment, DecisionContext context) {
-        double requiredHours = shipment.estimatedDistanceKm() / 80.0;
-        return driver.remainingHosHours() >= requiredHours;
-    }
-
-    @Override
-    public String getConstraintName() {
-        return "HOURS_OF_SERVICE_COMPLIANCE";
-    }
-}
-```
-
-### 3. Proposing & Governing an Action
-```java
-// 1. Propose action
+// 1. Propose an unverified action
 ActionProposal proposal = ActionProposal.builder()
         .actionType(ActionType.ASSIGN_DRIVER)
         .targetResource("shipment:SHIP-1001")
@@ -383,13 +390,13 @@ ActionProposal proposal = ActionProposal.builder()
         .requestedBy("AI-Dispatch-Advisor")
         .build();
 
-// 2. Evaluate via Governance Engine
-ActionDecision decision = governanceEngine.evaluate(proposal, context);
+// 2. Evaluate proposal through the Deterministic Governance Boundary
+ActionDecision decision = governanceEngine.evaluate(proposal);
 
-// 3. Dispatch to Executor if Authorized
+// 3. Only an APPROVED decision containing a trusted AuthorizedAction can execute
 if (decision.isApproved()) {
-    AuthorizedAction action = decision.authorizedAction();
-    ActionResult result = mcpActionExecutor.execute(action);
+    AuthorizedAction authorizedAction = decision.authorizedAction().orElseThrow();
+    ActionResult result = mcpActionExecutor.execute(authorizedAction);
     System.out.println("Execution Status: " + result.status());
 }
 ```
@@ -403,12 +410,12 @@ LogistiX is organized into 14 decoupled Maven modules adhering to Clean / Hexago
 | Module | Responsibility | Dependencies |
 | :--- | :--- | :--- |
 | [`logistix-common`](backend/logistix-common) | Geometry (Haversine), math, common enums, primitives | Java 21 standard library |
-| [`logistix-domain`](backend/logistix-domain) | Pure domain models, events, ports (`AIProvider`, `KnowledgeProvider`), and `AuthorizationAuthorityRegistry` | **Zero** external framework dependencies |
+| [`logistix-domain`](backend/logistix-domain) | Pure domain models, events, ports (`AIProvider`, `KnowledgeProvider`, `ActionExecutor`), and `AuthorizationAuthorityRegistry` | **Zero** external framework dependencies |
 | [`logistix-model`](backend/logistix-model) | Declarative decision models, `DecisionGraph` DAG structures | JGraphT, Java 21 |
-| [`logistix-engine`](backend/logistix-engine) | Pipeline orchestrator, `ConstraintEngine`, `RuleEngine`, `ScoringEngine`, `ActionGovernanceEngine` | Virtual Threads, `domain`, `model` |
+| [`logistix-engine`](backend/logistix-engine) | Pipeline orchestrator, `ConstraintEngine`, `RuleEngine`, `ScoringEngine`, `DefaultActionGovernanceEngine` | Virtual Threads, `domain`, `model` |
 | [`logistix-dsl`](backend/logistix-dsl) | Fluent Java DSL (`LogistiX.decision()`, builder patterns) | `engine`, `domain` |
 | [`logistix-ai`](backend/logistix-ai) | Spring AI adapters, structured prompt builders, `MockDispatchAIProvider` | Spring AI Core, Jackson |
-| [`logistix-rag`](backend/logistix-rag) | Knowledge grounding providers, `InMemoryKnowledgeProvider`, pgvector SPI | Java 21, pgvector (optional) |
+| [`logistix-rag`](backend/logistix-rag) | Knowledge grounding contracts, `InMemoryKnowledgeProvider` | Java 21 |
 | [`logistix-mcp`](backend/logistix-mcp) | Outbound Model Context Protocol adapter, `McpActionExecutor`, `ToolRegistry` | Spring Boot Autoconfigure, Jackson |
 | [`logistix-spring-boot-starter`](backend/logistix-spring-boot-starter) | Spring Boot 3 auto-configuration, SPI discovery, security properties | Spring Boot 3.4.x |
 | [`logistix-api`](backend/logistix-api) | REST endpoints, OpenAPI documentation, ProblemDetail error handlers | Spring MVC, Springdoc |
@@ -424,9 +431,9 @@ LogistiX is organized into 14 decoupled Maven modules adhering to Clean / Hexago
 LogistiX provides structured, audit-ready telemetry and explainability:
 
 ### 1. Segregated Telemetry
-- **`KnowledgeTelemetry`**: Retrieval duration, evidence document count, relevance scores, prompt injection filter status.
-- **`AITelemetry`**: LLM provider name, model ID, prompt token count, inference latency, advisory confidence.
-- **`ActionTelemetry`**: Governance evaluation duration, policy rule hits, MCP tool execution latency.
+- **`KnowledgeTelemetry`**: Tracks provider name, query text, requested max results, retrieved count, evidence document IDs, retrieval latency, status, and fallback status.
+- **`AITelemetry`**: Tracks provider name, provider type (LIVE vs MOCK), model name, prompt version, invocation count, inference latency, status, advisory confidence, and fallback status.
+- **`ActionTelemetry`**: Tracks action ID, action type, authorization status, governance latency, execution latency, executor type, and execution status.
 
 ### 2. Multi-Layer Explainability Breakdown
 ```
@@ -453,14 +460,14 @@ Execution Duration     : 7 ms
 
 [ACTION GOVERNANCE & AUDIT]:
    ✔ Action Assigned: ASSIGN_DRIVER -> DRV-ELENA-02
-   ✔ Token Fingerprint: SHA-256 (3c8f...91a2) | Expiration: 2026-08-24T00:05:00Z
+   ✔ Canonical Fingerprint: SHA-256 (3c8f...91a2) | Expiration: 2026-08-24T00:05:00Z
    ✔ MCP Execution: Tool 'assignDriver' dispatched successfully (1 MCP Call)
 ================================================================================
 ```
 
 ---
 
-## 🔒 Security Trust Model & Limitations
+## 🔒 Security Trust Model & Current Limitations
 
 ### Reference Implementation vs. Future Production Deployments
 
@@ -472,6 +479,11 @@ Execution Duration     : 7 ms
 | **Audit Log** | In-Memory `InMemoryActionAuditStore` | Append-only WORM event log (PostgreSQL / Apache Kafka) |
 | **Idempotency** | In-Memory Atomic Reservation | Distributed Redis / Hazelcast idempotency lock |
 | **Tool Connectivity** | In-Process `MockMcpToolServer` | Production MCP Transport (stdio / SSE) with mTLS |
+
+### Current Limitations:
+- **In-Memory Knowledge Store**: Reference implementation uses `InMemoryKnowledgeProvider`. Vector database backends are architectural extension points.
+- **In-Process Trust**: The reference authority and approver registries operate in-process with immutable frozen lifecycles. Distributed enterprise identity (OAuth2/OIDC/SCIM) is not implemented in the reference baseline.
+- **Mock Enterprise Tools**: Outbound tool connectivity in `logistix-examples` executes against `MockMcpToolServer`.
 
 ---
 

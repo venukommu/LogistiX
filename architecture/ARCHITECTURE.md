@@ -233,7 +233,7 @@ LogistiX maintains strict, non-negotiable boundaries separating advisory intelli
 2. **AI $\neq$ Authorization Authority**: AI proposals (`ActionProposal`) have zero direct authority and cannot be accepted by execution adapters.
 3. **MCP $\neq$ Governance**: MCP is strictly an outbound execution connectivity adapter; it cannot formulate decisions or create authority.
 4. **Deterministic Governance (`ActionGovernanceEngine`)**: Evaluates policies, hard constraints, and risk levels deterministically, returning `APPROVED`, `REJECTED`, or `APPROVAL_REQUIRED`.
-5. **Authorized Action Invariant (`AuthorizedAction`)**: Only tokenized, validated `AuthorizedAction` instances minted by trusted `ActionAuthorizationIssuer` can be executed by outbound adapters (`ActionExecutor`).
+5. **Authorized Action Invariant (`AuthorizedAction`)**: Only immutable, validated `AuthorizedAction` artifacts minted by trusted `ActionAuthorizationIssuer` can be executed by outbound adapters (`ActionExecutor`).
 6. **Controlled Tool Registry (`ToolRegistry`)**: Outbound adapters execute only registered, pre-approved enterprise tools (`changeDeliveryAppointment`, `assignDriver`, `updateShipmentStatus`). Arbitrary tool invocations are rejected.
 7. **Single Authority Registry Invariant**: There is exactly **one** `AuthorizationAuthorityRegistry` per application context, owned and configured exclusively by core security (`logistix-spring-boot-starter`). MCP consumes this registry and cannot own or duplicate authorities.
 8. **Segregated Telemetry & Complete Audit**: `ActionTelemetry` captures governance and execution latencies independently from AI/Knowledge telemetry. Every proposal, decision, and execution is recorded immutably in `ActionAuditEntry`.
