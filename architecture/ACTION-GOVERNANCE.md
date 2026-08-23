@@ -181,13 +181,36 @@ logistix:
         - LogistiX-Governance-Authority
   mcp:
     enabled: true
-    authorities:
-      - LogistiX-Governance-Authority
+    execution-timeout: 10s
 ```
 
 ---
 
-## 6. Reference Implementation vs Production Architecture
+## 6. Reference Trust Model
+
+The LogistiX reference implementation uses in-process, technology-neutral trust components:
+
+```
+Application Configuration (application.yml)
+        ↓
+Validate Configuration (Fail fast on duplicate/unregistered/conflicting IDs)
+        ↓
+Build Trusted Registries (AuthorizationAuthorityRegistry, TrustedApproverRegistry)
+        ↓
+Freeze Registries (State becomes strictly immutable AtomicBoolean frozen=true)
+        ↓
+Runtime Read-Only Access
+```
+
+- **`AuthorizationAuthorityRegistry`**: In-process reference registry of trusted authorization authority identities. Provides startup registration and frozen runtime read-only validation. It is not an external identity provider or KMS.
+- **`TrustedApproverRegistry`**: In-process reference registry of authorized operational approvers and their permitted action types.
+- **`ActionAuthorizationIssuer`**: Trusted domain issuance component responsible for computing canonical fingerprints, setting provenance, and minting `AuthorizedAction` instances.
+- **`ActionApprovalIssuer`**: Trusted domain issuance component responsible for verifying human supervisor credentials and minting single-use `ActionApprovalGrant` instances.
+- **`McpActionExecutor`**: Outbound infrastructure adapter that executes only verified, non-expired, tamper-checked `AuthorizedAction` instances against registered enterprise tools.
+
+---
+
+## 7. Reference Implementation vs Production Architecture
 
 | Capability | LogistiX Reference Implementation | Future Production Deployment |
 | :--- | :--- | :--- |

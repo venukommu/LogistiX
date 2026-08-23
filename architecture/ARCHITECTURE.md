@@ -184,30 +184,61 @@ flowchart TD
 LogistiX enforces a strict, technology-neutral governed action architecture where external intelligence models can only propose actions, never execute them directly.
 
 ```
-+------------------+       +-------------------------------+       +--------------------+       +----------------------+
-|  AI / Decision   | ----> |      LogistiX Governance      | ----> |  AuthorizedAction  | ----> |   ActionExecutor     |
-|     Proposal     |       | (Policies, Constraints, Risk) |       |  (Tokenized Grant) |       | (e.g. McpActionExec) |
-+------------------+       +-------------------------------+       +--------------------+       +----------------------+
-                                      |            |                                                        |
-                            [REJECTED]|            |[APPROVAL_REQUIRED]                                     v
-                                      v            v                                              +--------------------+
-                                 +--------------------+                                           |   Enterprise Tool  |
-                                 |  Audit Log Record  |                                           | (TMS / Fleet / DB) |
-                                 |   (0 MCP Calls)    |                                           +--------------------+
-                                 +--------------------+
+                     AI / Automation
+                           │
+                           ▼
+                    Action Proposal
+                           │
+                           ▼
+                 LogistiX Governance
+                           │
+                     ┌─────┴─────┐
+                     ▼           ▼
+                  REJECT      APPROVE
+                                 │
+                                 ▼
+                       Trusted Authorization
+                                 │
+                                 ▼
+                         AuthorizedAction
+                                 │
+                                 ▼
+                         ActionExecutor
+                                 │
+                                 ▼
+                           MCP Adapter
+                                 │
+                                 ▼
+                          Tool Registry
+                                 │
+                                 ▼
+                         Enterprise Tool
 ```
 
-### Architectural Principles:
-1. **AI Proposes, LogistiX Decides**: AI proposals (`ActionProposal`) have zero direct authority and cannot be accepted by execution adapters.
-2. **Deterministic Governance (`ActionGovernanceEngine`)**: Evaluates policies, hard constraints, and risk levels deterministically, returning `APPROVED`, `REJECTED`, or `APPROVAL_REQUIRED`.
-3. **Authorized Action Invariant (`AuthorizedAction`)**: Only tokenized, validated `AuthorizedAction` instances can be executed by outbound adapters (`ActionExecutor`).
-4. **Controlled Tool Registry (`ToolRegistry`)**: Outbound adapters execute only registered, pre-approved enterprise tools (`changeDeliveryAppointment`, `assignDriver`, `updateShipmentStatus`). Arbitrary tool invocations are rejected.
-5. **Technology-Neutral Domain**: The core domain (`logistix-domain`) is 100% agnostic and unaware of MCP, HTTP, JSON-RPC, or external tool protocols. The Model Context Protocol exists purely as an infrastructure adapter (`logistix-mcp`).
-6. **Segregated Telemetry & Complete Audit**: `ActionTelemetry` captures governance and execution latencies independently from AI/Knowledge telemetry. Every proposal, decision, and execution is recorded immutably in `ActionAuditEntry`.
+And for intelligence synthesis:
+```
+    KnowledgeProvider ──► Evidence (Untrusted Reference Data)
+                                │
+                                ▼
+    Spring AI ─────────► AI Advisory (Advisory Signal Only)
+                                │
+                                ▼
+    Governance ────────► Deterministic Policy & Hard Constraints (Final Decider)
+```
+
+### Inviolable Governance Principles:
+1. **Knowledge $\neq$ Decision Authority**: Knowledge documents provide reference context and evidence, never direct policy enforcement.
+2. **AI $\neq$ Authorization Authority**: AI proposals (`ActionProposal`) have zero direct authority and cannot be accepted by execution adapters.
+3. **MCP $\neq$ Governance**: MCP is strictly an outbound execution connectivity adapter; it cannot formulate decisions or create authority.
+4. **Deterministic Governance (`ActionGovernanceEngine`)**: Evaluates policies, hard constraints, and risk levels deterministically, returning `APPROVED`, `REJECTED`, or `APPROVAL_REQUIRED`.
+5. **Authorized Action Invariant (`AuthorizedAction`)**: Only tokenized, validated `AuthorizedAction` instances minted by trusted `ActionAuthorizationIssuer` can be executed by outbound adapters (`ActionExecutor`).
+6. **Controlled Tool Registry (`ToolRegistry`)**: Outbound adapters execute only registered, pre-approved enterprise tools (`changeDeliveryAppointment`, `assignDriver`, `updateShipmentStatus`). Arbitrary tool invocations are rejected.
+7. **Technology-Neutral Domain**: The core domain (`logistix-domain`) is 100% agnostic and unaware of MCP, HTTP, JSON-RPC, or external tool protocols.
+8. **Segregated Telemetry & Complete Audit**: `ActionTelemetry` captures governance and execution latencies independently from AI/Knowledge telemetry. Every proposal, decision, and execution is recorded immutably in `ActionAuditEntry`.
 
 ---
 
-## 10. Single Authority Registry & MCP Boundary Unification (Sprint 10.2.4)
+## 10. Single Authority Registry & MCP Boundary Unification (Sprint 10.2.4 & 10.2.5)
 
 The application context enforces a strict **Single Authority Registry Invariant**:
 - There is exactly **one** `AuthorizationAuthorityRegistry` per LogistiX application context, owned and configured exclusively by core security (`logistix-spring-boot-starter`).

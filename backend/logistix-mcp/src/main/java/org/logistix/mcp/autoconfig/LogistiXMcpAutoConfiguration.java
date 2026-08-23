@@ -17,9 +17,16 @@ import java.time.Clock;
 
 /**
  * Spring Boot AutoConfiguration for LogistiX MCP Adapter.
- * Consumes the single core AuthorizationAuthorityRegistry bean configured by core security.
- * Activates only when MCP classes are present, logistix.mcp.enabled is true,
- * and the core AuthorizationAuthorityRegistry bean exists.
+ *
+ * <p><strong>Lifecycle & Boundary Rules:</strong></p>
+ * <ul>
+ *   <li>Consumes the single core {@link AuthorizationAuthorityRegistry} bean configured by core LogistiX security.</li>
+ *   <li>Activates only when MCP classes are present, {@code logistix.mcp.enabled} is true,
+ *       and the core {@link AuthorizationAuthorityRegistry} bean exists in the context.</li>
+ *   <li>Evaluates after {@code LogistiXAutoConfiguration} to ensure the core authority registry is initialized.</li>
+ *   <li>If core security is disabled ({@code logistix.security.enabled=false}), this configuration backs off
+ *       and creates zero MCP execution beans.</li>
+ * </ul>
  */
 @AutoConfiguration
 @AutoConfigureAfter(name = "org.logistix.starter.autoconfig.LogistiXAutoConfiguration")

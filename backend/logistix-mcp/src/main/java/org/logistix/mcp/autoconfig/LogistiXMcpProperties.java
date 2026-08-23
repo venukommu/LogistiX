@@ -6,8 +6,17 @@ import java.time.Duration;
 
 /**
  * Spring Boot Configuration Properties for LogistiX MCP Adapter.
- * Contains only transport- and executor-specific properties.
- * Trust and authority configuration is strictly owned by LogistiX core security.
+ *
+ * <p><strong>Property Semantics:</strong></p>
+ * <ul>
+ *   <li>{@code logistix.mcp.enabled} (default {@code true}): Enables the MCP execution adapter only when
+ *       the {@code logistix-mcp} module is present on the classpath and the core LogistiX
+ *       {@code AuthorizationAuthorityRegistry} bean is available.</li>
+ *   <li>If core security is disabled ({@code logistix.security.enabled=false}), MCP auto-configuration
+ *       safely backs off and will not activate.</li>
+ *   <li>MCP contains no trust or authority configuration; all authorization authority is owned exclusively
+ *       by core LogistiX security.</li>
+ * </ul>
  */
 @ConfigurationProperties(prefix = "logistix.mcp")
 public class LogistiXMcpProperties {

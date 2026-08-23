@@ -5,9 +5,20 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * In-process domain registry of trusted LogistiX Authorization Authorities.
- * Enforces a strict configuration lifecycle: configure -> validate -> freeze -> runtime read-only.
- * Validates that an AuthorizedAction was issued by an active, recognized governance authority instance.
+ * Technology-neutral in-process reference trust registry of authorized LogistiX Governance Authorization Authorities.
+ *
+ * <p><strong>Architectural Role & Scope:</strong></p>
+ * <ul>
+ *   <li>This registry represents an in-process reference trust registry that manages startup configuration,
+ *       fail-fast validation, and immutable runtime authority lookup for LogistiX.</li>
+ *   <li>It is <strong>NOT</strong> a distributed identity service, enterprise IAM (OAuth/OIDC/Keycloak),
+ *       persistent database repository, or cryptographic trust root.</li>
+ *   <li>It enforces the core LogistiX trust lifecycle:
+ *       <code>configure &rarr; validate &rarr; freeze &rarr; runtime read-only</code>.</li>
+ *   <li>Production deployments may replace or augment this reference model with enterprise IAM,
+ *       distributed key management (KMS/HSM), and cryptographic payload signing envelopes without
+ *       altering the technology-neutral domain authorization boundary.</li>
+ * </ul>
  */
 public class AuthorizationAuthorityRegistry {
 

@@ -194,10 +194,18 @@ public class LogistiXProperties {
             this.authorityId = authorityId;
         }
 
+        /**
+         * @deprecated Use {@link #getAuthorityId()} instead. {@code authorityId} is the canonical authorization authority identity.
+         */
+        @Deprecated(since = "0.1.0", forRemoval = true)
         public String getIssuerId() {
             return issuerId;
         }
 
+        /**
+         * @deprecated Use {@link #setAuthorityId(String)} instead. {@code authorityId} is the canonical authorization authority identity.
+         */
+        @Deprecated(since = "0.1.0", forRemoval = true)
         public void setIssuerId(String issuerId) {
             this.issuerId = issuerId;
         }
