@@ -122,3 +122,29 @@ mvn clean test
 ```bash
 mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" -pl :logistix-examples
 ```
+
+---
+
+## 6. Driver Dispatch Decision Lab (Sprint 8)
+
+The **Driver Dispatch Decision Lab** (`org.logistix.examples.dispatch.lab`) provides a side-by-side comparison engine measuring the exact impact of AI decision augmentation on identical operational scenarios.
+
+### Golden Demonstration Scenarios:
+1. **`baseline-clear` (AI Confirms)**: Clear corridor where AI confirms the deterministic choice while providing operational reassurance and risk telemetry.
+2. **`corridor-weather-risk` (AI Adds Context)**: Severe mountain pass blizzard advisory where AI flags elevated risk for standard equipment and highlights winter endorsements.
+3. **`safety-constraint-protection` (Safety Guardrail)**: Infeasible candidates (missing certifications, HOS exhaustion) are rejected by deterministic guardrails, proving that AI cannot override hard constraints.
+
+### Decision Lab CLI Commands:
+```bash
+# Compare all golden scenarios side-by-side (Terminal Box View)
+mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" \
+  -Dexec.args="--compare --scenario all" -pl :logistix-examples
+
+# Run specific scenario in JSON format
+mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" \
+  -Dexec.args="--compare --scenario corridor-weather-risk --format json" -pl :logistix-examples
+
+# Run side-by-side comparison with high-throughput benchmark
+mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" \
+  -Dexec.args="--compare --scenario all --benchmark" -pl :logistix-examples
+```

@@ -13,6 +13,11 @@ import org.logistix.domain.fact.FactBag;
 import org.logistix.dsl.LogistiX;
 import org.logistix.engine.executor.DecisionExecutor;
 import org.logistix.engine.pipeline.DecisionPipeline;
+import org.logistix.examples.dispatch.lab.DispatchComparisonEngine;
+import org.logistix.examples.dispatch.lab.DispatchComparisonResult;
+import org.logistix.examples.dispatch.lab.DispatchLabReporter;
+import org.logistix.examples.dispatch.lab.DispatchScenario;
+import org.logistix.examples.dispatch.lab.DispatchScenarios;
 import org.logistix.examples.dispatch.model.Certification;
 import org.logistix.examples.dispatch.model.DispatchAssignment;
 import org.logistix.examples.dispatch.model.DispatchCandidate;
@@ -26,18 +31,88 @@ import org.logistix.model.graph.DecisionGraph;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * Interactive Reference Application demonstrating production-grade AI-Assisted Driver Dispatch
+ * Interactive Reference Application & Decision Lab demonstrating production-grade AI-Assisted Driver Dispatch
  * on the LogistiX Decision Intelligence Framework.
  */
 public class DriverDispatchReferenceApp {
 
     public static void main(String[] args) {
+        Map<String, String> cliArgs = parseArgs(args);
+
+        if (cliArgs.containsKey("compare") || cliArgs.containsKey("scenario") || "compare".equalsIgnoreCase(cliArgs.get("mode"))) {
+            runDecisionLabCli(cliArgs);
+            return;
+        }
+
+        runStandardGoldenDemo();
+    }
+
+    private static void runDecisionLabCli(Map<String, String> args) {
+        String scenarioTarget = args.getOrDefault("scenario", "all");
+        String format = args.getOrDefault("format", "text");
+        boolean isJson = "json".equalsIgnoreCase(format);
+
+        Instant now = Instant.now();
+        List<DispatchScenario> scenariosToRun;
+
+        if ("all".equalsIgnoreCase(scenarioTarget)) {
+            scenariosToRun = DispatchScenarios.allScenarios(now);
+        } else {
+            Optional<DispatchScenario> found = DispatchScenarios.findById(scenarioTarget, now);
+            scenariosToRun = found.map(List::of).orElseGet(() -> DispatchScenarios.allScenarios(now));
+        }
+
+        DispatchComparisonEngine engine = new DispatchComparisonEngine(new MockDispatchAIProvider());
+
+        if (!isJson) {
+            System.out.println("========================================================================================================");
+            System.out.println("   LOGISTIX DRIVER DISPATCH DECISION LAB — RULES_ONLY vs HYBRID_AI COMPARISON");
+            System.out.println("========================================================================================================");
+        }
+
+        for (DispatchScenario scenario : scenariosToRun) {
+            DispatchComparisonResult result = engine.compare(scenario);
+            if (isJson) {
+                System.out.println(DispatchLabReporter.formatJson(result));
+            } else {
+                System.out.println(DispatchLabReporter.formatSideBySideBox(result));
+            }
+        }
+
+        if (args.containsKey("benchmark")) {
+            DecisionExecutor executor = LogistiX.getContext().getExecutor();
+            System.out.println("\n================================================================================");
+            System.out.println("   HIGH-THROUGHPUT DECISION BENCHMARK (100 ITERATIONS, 20 DRIVERS)");
+            System.out.println("================================================================================");
+            DispatchBenchmarkRunner.BenchmarkResult benchRules = DispatchBenchmarkRunner.runBenchmark(
+                    "RULES_ONLY", "Deterministic JVM", DispatchDecisionPipelineFactory.createRulesOnlyPipeline(), executor, 100, 20);
+
+            DispatchBenchmarkRunner.BenchmarkResult benchHybridMock = DispatchBenchmarkRunner.runBenchmark(
+                    "HYBRID_MOCK", "Mock AI (In-Memory)", DispatchDecisionPipelineFactory.createHybridAiPipeline(), executor, 100, 20);
+
+            System.out.printf("%-14s | %-22s | %-12s | %-10s | %-10s | %-10s | %-10s\n",
+                    "Mode", "Provider Type", "Throughput", "Total Time", "p50 (ms)", "p95 (ms)", "Avg Score");
+            System.out.println("-----------------------------------------------------------------------------------------------------");
+            System.out.printf("%-14s | %-22s | %7.1f ops/s | %8d ms | %8.2f ms | %8.2f ms | %8.3f\n",
+                    benchRules.modeName(), benchRules.providerType(), benchRules.opsPerSec(), benchRules.totalDuration().toMillis(),
+                    benchRules.p50Millis(), benchRules.p95Millis(), benchRules.avgScore());
+            System.out.printf("%-14s | %-22s | %7.1f ops/s | %8d ms | %8.2f ms | %8.2f ms | %8.3f\n",
+                    benchHybridMock.modeName(), benchHybridMock.providerType(), benchHybridMock.opsPerSec(), benchHybridMock.totalDuration().toMillis(),
+                    benchHybridMock.p50Millis(), benchHybridMock.p95Millis(), benchHybridMock.avgScore());
+            System.out.println("=====================================================================================================\n");
+        }
+    }
+
+    private static void runStandardGoldenDemo() {
         System.out.println("================================================================================");
         System.out.println("   LogistiX Framework Reference Capability: AI-Assisted Driver Dispatch");
         System.out.println("================================================================================\n");
@@ -163,7 +238,7 @@ public class DriverDispatchReferenceApp {
         System.out.println("================================================================================");
         System.out.println("Decision Type          : " + hybridResult.decisionType());
         System.out.println("AI Provider            : " + (telemetry != null ? telemetry.providerName() : "NONE"));
-        System.out.println("AI Provider Type       : MOCK");
+        System.out.println("AI Provider Type       : " + (telemetry != null ? telemetry.providerType() : "MOCK"));
         System.out.println("AI Invocations Count   : " + (telemetry != null ? telemetry.invocationCount() : 0));
         System.out.println("AI Prompt Version      : " + (telemetry != null ? telemetry.promptVersion() : "N/A"));
         System.out.println("AI Advisory Confidence : " + String.format("%.2f%%", (telemetry != null && telemetry.advisoryConfidence() != null ? telemetry.advisoryConfidence() * 100.0 : 92.0)));
@@ -229,5 +304,22 @@ public class DriverDispatchReferenceApp {
                 benchHybridMock.modeName(), benchHybridMock.providerType(), benchHybridMock.opsPerSec(), benchHybridMock.totalDuration().toMillis(),
                 benchHybridMock.p50Millis(), benchHybridMock.p95Millis(), benchHybridMock.avgScore());
         System.out.println("=====================================================================================================\n");
+    }
+
+    private static Map<String, String> parseArgs(String[] args) {
+        Map<String, String> map = new HashMap<>();
+        for (int i = 0; i < args.length; i++) {
+            String a = args[i];
+            if (a.startsWith("--")) {
+                String key = a.substring(2);
+                if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
+                    map.put(key, args[i + 1]);
+                    i++;
+                } else {
+                    map.put(key, "true");
+                }
+            }
+        }
+        return map;
     }
 }

@@ -200,5 +200,35 @@ The **AI-Assisted Commercial Driver Dispatch Reference Capability** (`logistix-e
 - **Inviolable Invariant**: "The AI can reason. LogistiX decides."
 - **Regression Standard**: Validated through `DriverDispatchGoldenReferenceTest` covering constraints, rules, scoring, single-call invocation invariant, fail-safe degradation, and explainability feature attribution.
 
+---
+
+## 9. Driver Dispatch Decision Lab (Sprint 8)
+
+The **Driver Dispatch Decision Lab** (`org.logistix.examples.dispatch.lab`) provides a repeatable comparative framework that benchmarks `RULES_ONLY` vs `HYBRID_AI` on identical operational inputs.
+
+```mermaid
+flowchart TD
+    Scenario["DispatchScenario (Immutable Input)"] --> Input["DispatchComparisonInput<br/>(Guaranteed Same FactBag & Context)"]
+    Input --> Engine["DispatchComparisonEngine"]
+    
+    subgraph Execution ["Side-by-Side Pipelines"]
+        Engine --> Rules["RULES_ONLY Pipeline<br/>(AI Calls: 0)"]
+        Engine --> Hybrid["HYBRID_AI Pipeline<br/>(AI Calls: 1)"]
+    end
+    
+    Rules --> Res1["Deterministic DecisionResult"]
+    Hybrid --> Res2["Augmented DecisionResult"]
+    
+    Res1 & Res2 --> Comp["DispatchComparisonResult<br/>(Delta, Telemetry, Safety Verification)"]
+    Comp --> Rep1["Terminal Box Reporter (1080p Ready)"]
+    Comp --> Rep2["Structured JSON Reporter"]
+```
+
+### Core Architectural Insights:
+1. **Decision Integrity**: Deterministic feasibility constraints and multi-criteria scoring retain authority.
+2. **Context Enrichment**: AI introduces qualitative environmental risk reasoning without manipulating numerical weights.
+3. **Safety Guarantee**: Unsafe or uncertified candidates are filtered deterministically, ensuring that AI recommendations can never compromise operational safety.
+
+
 
 
