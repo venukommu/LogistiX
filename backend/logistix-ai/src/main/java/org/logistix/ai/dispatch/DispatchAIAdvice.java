@@ -93,7 +93,7 @@ public record DispatchAIAdvice(
         return new DispatchAIAdvice(
                 candidateId,
                 RiskLevel.LOW,
-                0.85,
+                0.92,
                 reasoning,
                 Collections.emptyList(),
                 Collections.emptyList(),

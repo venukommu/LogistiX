@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Standardized Golden Demonstration Scenarios for the Driver Dispatch Decision Lab.
@@ -27,7 +28,7 @@ public final class DispatchScenarios {
      */
     public static DispatchScenario scenario1AiConfirms(Instant now) {
         Shipment shipment = Shipment.builder()
-                .shipmentId(java.util.UUID.fromString("11111111-1111-1111-1111-111111111111"))
+                .shipmentId(UUID.fromString("11111111-1111-1111-1111-111111111111"))
                 .origin(Coordinates.of(37.7749, -122.4194)) // San Francisco
                 .destination(Coordinates.of(34.0522, -118.2437)) // Los Angeles
                 .weightKg(10000.0)
@@ -39,6 +40,7 @@ public final class DispatchScenarios {
                 .build();
 
         Driver alex = Driver.builder()
+                .driverId(UUID.fromString("11111111-1111-1111-1111-000000000001"))
                 .name("Alex 'Swift' Rivera")
                 .currentLocation(Coordinates.of(37.8044, -122.2712)) // Oakland (13.4 km)
                 .certifications(Set.of(Certification.HAZMAT, Certification.TWIC))
@@ -49,6 +51,7 @@ public final class DispatchScenarios {
                 .build();
 
         Driver bob = Driver.builder()
+                .driverId(UUID.fromString("11111111-1111-1111-1111-000000000002"))
                 .name("Bob Vance")
                 .currentLocation(Coordinates.of(37.3382, -121.8863)) // San Jose (67.6 km)
                 .certifications(Set.of(Certification.HAZMAT))
@@ -78,7 +81,7 @@ public final class DispatchScenarios {
      */
     public static DispatchScenario scenario2AiAddsContext(Instant now) {
         Shipment shipment = Shipment.builder()
-                .shipmentId(java.util.UUID.fromString("22222222-2222-2222-2222-222222222222"))
+                .shipmentId(UUID.fromString("22222222-2222-2222-2222-222222222222"))
                 .origin(Coordinates.of(37.7749, -122.4194))
                 .destination(Coordinates.of(34.0522, -118.2437))
                 .weightKg(12000.0)
@@ -90,6 +93,7 @@ public final class DispatchScenarios {
                 .build();
 
         Driver driver1 = Driver.builder()
+                .driverId(UUID.fromString("22222222-2222-2222-2222-000000000001"))
                 .name("Alex 'Swift' Rivera")
                 .currentLocation(Coordinates.of(37.8044, -122.2712))
                 .certifications(Set.of(Certification.HAZMAT, Certification.TWIC))
@@ -100,6 +104,7 @@ public final class DispatchScenarios {
                 .build();
 
         Driver driver2 = Driver.builder()
+                .driverId(UUID.fromString("22222222-2222-2222-2222-000000000002"))
                 .name("Bob Vance")
                 .currentLocation(Coordinates.of(37.3382, -121.8863))
                 .certifications(Set.of(Certification.HAZMAT))
@@ -129,7 +134,7 @@ public final class DispatchScenarios {
      */
     public static DispatchScenario scenario3SafetyGuardrail(Instant now) {
         Shipment shipment = Shipment.builder()
-                .shipmentId(java.util.UUID.fromString("33333333-3333-3333-3333-333333333333"))
+                .shipmentId(UUID.fromString("33333333-3333-3333-3333-333333333333"))
                 .origin(Coordinates.of(37.7749, -122.4194))
                 .destination(Coordinates.of(34.0522, -118.2437))
                 .weightKg(18000.0)
@@ -141,6 +146,7 @@ public final class DispatchScenarios {
                 .build();
 
         Driver uncertifiedVip = Driver.builder()
+                .driverId(UUID.fromString("33333333-3333-3333-3333-000000000001"))
                 .name("Charlie Davis (No HazMat/TWIC)")
                 .currentLocation(Coordinates.of(37.7750, -122.4190)) // 0.1 km deadhead
                 .certifications(Set.of(Certification.REEFER)) // MISSING REQUIRED CERTS
@@ -151,6 +157,7 @@ public final class DispatchScenarios {
                 .build();
 
         Driver exhaustedDriver = Driver.builder()
+                .driverId(UUID.fromString("33333333-3333-3333-3333-000000000002"))
                 .name("Danielle Evans (Low HOS)")
                 .currentLocation(Coordinates.of(37.7750, -122.4190))
                 .certifications(Set.of(Certification.HAZMAT, Certification.TWIC))
@@ -161,6 +168,7 @@ public final class DispatchScenarios {
                 .build();
 
         Driver compliantDriver = Driver.builder()
+                .driverId(UUID.fromString("33333333-3333-3333-3333-000000000003"))
                 .name("Alex 'Swift' Rivera (Compliant)")
                 .currentLocation(Coordinates.of(37.8044, -122.2712)) // 13.4 km deadhead
                 .certifications(Set.of(Certification.HAZMAT, Certification.TWIC))
@@ -191,7 +199,7 @@ public final class DispatchScenarios {
      */
     public static DispatchScenario scenario4AiContextualDecision(Instant now) {
         Shipment shipment = Shipment.builder()
-                .shipmentId(java.util.UUID.fromString("44444444-4444-4444-4444-444444444444"))
+                .shipmentId(UUID.fromString("44444444-4444-4444-4444-444444444444"))
                 .origin(Coordinates.of(39.5296, -119.8138)) // Reno, NV
                 .destination(Coordinates.of(38.5816, -121.4944)) // Sacramento, CA (via Donner Pass)
                 .weightKg(14000.0)
@@ -204,6 +212,7 @@ public final class DispatchScenarios {
 
         // Driver A: Low deadhead, standard tier. FEASIBLE. Higher deterministic base score.
         Driver standardDriver = Driver.builder()
+                .driverId(UUID.fromString("44444444-4444-4444-4444-000000000001"))
                 .name("Sam 'Speedy' Miller")
                 .currentLocation(Coordinates.of(39.5300, -119.8100)) // Reno Downtown (1.0 km deadhead)
                 .certifications(Set.of(Certification.HAZMAT))
@@ -215,6 +224,7 @@ public final class DispatchScenarios {
 
         // Driver B: Moderate deadhead, Platinum winter veteran. FEASIBLE. Robust HOS & rating.
         Driver mountainVeteran = Driver.builder()
+                .driverId(UUID.fromString("44444444-4444-4444-4444-000000000002"))
                 .name("Elena 'Mountain' Rostova")
                 .currentLocation(Coordinates.of(39.3280, -120.1833)) // Truckee Mountain Base (45.0 km deadhead)
                 .certifications(Set.of(Certification.HAZMAT, Certification.TWIC))
@@ -245,7 +255,7 @@ public final class DispatchScenarios {
      */
     public static DispatchScenario scenario5KnowledgeAwareDispatch(Instant now) {
         Shipment shipment = Shipment.builder()
-                .shipmentId(java.util.UUID.fromString("55555555-5555-5555-5555-555555555555"))
+                .shipmentId(UUID.fromString("55555555-5555-5555-5555-555555555555"))
                 .origin(Coordinates.of(39.5296, -119.8138)) // Reno, NV
                 .destination(Coordinates.of(38.5816, -121.4944)) // Sacramento, CA (via Donner Pass)
                 .weightKg(15000.0)
@@ -257,6 +267,7 @@ public final class DispatchScenarios {
                 .build();
 
         Driver standardDriver = Driver.builder()
+                .driverId(UUID.fromString("55555555-5555-5555-5555-000000000001"))
                 .name("Sam 'Speedy' Miller")
                 .currentLocation(Coordinates.of(39.5300, -119.8100))
                 .certifications(Set.of(Certification.HAZMAT, Certification.TWIC))
@@ -267,6 +278,7 @@ public final class DispatchScenarios {
                 .build();
 
         Driver mountainVeteran = Driver.builder()
+                .driverId(UUID.fromString("55555555-5555-5555-5555-000000000002"))
                 .name("Elena 'Mountain' Rostova")
                 .currentLocation(Coordinates.of(39.3280, -120.1833))
                 .certifications(Set.of(Certification.HAZMAT, Certification.TWIC))

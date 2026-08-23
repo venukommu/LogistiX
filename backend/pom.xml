@@ -32,6 +32,7 @@
         <module>logistix-benchmark</module>
         <module>logistix-spring-boot-starter</module>
         <module>logistix-api</module>
+        <module>logistix-mcp</module>
         <module>../examples</module>
     </modules>
 
@@ -146,6 +147,11 @@
             <dependency>
                 <groupId>org.logistix</groupId>
                 <artifactId>logistix-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.logistix</groupId>
+                <artifactId>logistix-mcp</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
