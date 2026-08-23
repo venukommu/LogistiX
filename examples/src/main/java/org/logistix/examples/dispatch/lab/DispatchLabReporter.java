@@ -9,7 +9,7 @@ import java.util.Map;
 
 /**
  * High-clarity reporter formatting DispatchComparisonResult into human-readable terminal boxes
- * (ready for 1080p screen recording) or structured JSON.
+ * (ready for 1080p screen recording), scenario summary tables, and structured JSON.
  */
 public final class DispatchLabReporter {
 
@@ -19,7 +19,33 @@ public final class DispatchLabReporter {
     private DispatchLabReporter() {}
 
     /**
-     * Formats the comparison in a high-clarity side-by-side terminal box.
+     * Formats an executive summary table of all compared scenarios.
+     */
+    public static String formatScenarioSummary(List<DispatchComparisonResult> results) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n");
+        sb.append("========================================================================================================\n");
+        sb.append("   LOGISTIX DRIVER DISPATCH DECISION LAB — COMPARISON SUMMARY TABLE\n");
+        sb.append("========================================================================================================\n");
+        sb.append(String.format("%-30s | %-16s | %-15s | %-12s | %-10s\n",
+                "Scenario ID", "Rec Changed?", "AI Influenced?", "AI Invocations", "Safety"));
+        sb.append("--------------------------------------------------------------------------------------------------------\n");
+
+        for (DispatchComparisonResult r : results) {
+            sb.append(String.format("%-30s | %-16s | %-15s | %-14d | %-10s\n",
+                    r.scenario().scenarioId(),
+                    r.recommendationChanged() ? "YES (" + r.hybridDriver() + ")" : "NO (" + r.rulesOnlyDriver() + ")",
+                    r.aiInfluencedDecision() ? "YES" : "NO",
+                    r.aiInvocations(),
+                    r.hardConstraintsSatisfied() ? "PASS ✓" : "FAIL ✗"));
+        }
+
+        sb.append("========================================================================================================\n");
+        return sb.toString();
+    }
+
+    /**
+     * Formats the comparison in a high-clarity side-by-side terminal box (1080p recording ready).
      */
     public static String formatSideBySideBox(DispatchComparisonResult result) {
         StringBuilder sb = new StringBuilder();
@@ -51,20 +77,14 @@ public final class DispatchLabReporter {
         sb.append("║  WHAT CHANGED?                                                                                       ║\n");
         sb.append("╠══════════════════════════════════════════════════════════════════════════════════════════════════════╣\n");
 
-        if (result.recommendationChanged()) {
-            sb.append(String.format("║  • Recommendation Shift : %s -> %-62s║\n",
-                    result.rulesOnlyDriver(), result.hybridDriver()));
-            sb.append("║  • Reason               : AI identified qualitative corridor risk impacting deterministic policy.   ║\n");
-        } else {
-            sb.append(String.format("║  • Recommendation Shift : NONE (Both selected %-53s)║\n", result.rulesOnlyDriver()));
-            sb.append("║  • Value Added          : AI confirmed deterministic recommendation and provided risk telemetry.     ║\n");
-        }
-
-        sb.append(String.format("║  • Regulatory Safety    : %-83s║\n",
-                result.hardConstraintsSatisfied() ? "PASSED (All Hard Constraints Satisfied)" : "VIOLATION DETECTED"));
+        sb.append(String.format("║  • Recommendation Changed : %-73s║\n", result.recommendationChanged() ? "YES" : "NO"));
+        sb.append(String.format("║  • AI Influenced Decision : %-73s║\n", result.aiInfluencedDecision() ? "YES" : "NO"));
+        sb.append(String.format("║  • Decision Policy Reason : %-73s║\n", truncate(result.aiInfluenceReason(), 73)));
+        sb.append(String.format("║  • Regulatory Safety      : %-73s║\n",
+                result.hardConstraintsSatisfied() ? "SAFE (All Hard Feasibility Constraints Satisfied ✓)" : "VIOLATION DETECTED ✗"));
 
         if (!result.aiInsights().isEmpty()) {
-            sb.append("║  • AI Contextual Insights:                                                                           ║\n");
+            sb.append("║  • AI Contextual Insights :                                                                           ║\n");
             for (String insight : result.aiInsights()) {
                 sb.append(String.format("║    - %-96s║\n", truncate(insight, 96)));
             }
@@ -86,30 +106,34 @@ public final class DispatchLabReporter {
             root.put("trafficRiskLevel", result.scenario().trafficRiskLevel());
 
             Map<String, Object> rulesOnly = new LinkedHashMap<>();
-            rulesOnly.put("driver", result.rulesOnlyDriver());
+            rulesOnly.put("recommendation", result.rulesOnlyDriver());
             rulesOnly.put("score", result.rulesOnlyScore());
-            rulesOnly.put("decisionConfidence", result.rulesOnlyConfidence());
-            rulesOnly.put("aiInvocations", 0);
+            rulesOnly.put("confidence", result.rulesOnlyConfidence());
+            rulesOnly.put("aiInvocationCount", 0);
             rulesOnly.put("aiLatencyMs", 0);
             root.put("rulesOnly", rulesOnly);
 
             Map<String, Object> hybrid = new LinkedHashMap<>();
-            hybrid.put("driver", result.hybridDriver());
+            hybrid.put("recommendation", result.hybridDriver());
             hybrid.put("score", result.hybridScore());
-            hybrid.put("decisionConfidence", result.hybridConfidence());
+            hybrid.put("confidence", result.hybridConfidence());
             hybrid.put("aiAdvisoryConfidence", result.aiAdvisoryConfidence());
-            hybrid.put("aiInvocations", result.aiInvocations());
+            hybrid.put("aiInvocationCount", result.aiInvocations());
             hybrid.put("aiLatencyMs", result.aiLatency().toMillis());
-            hybrid.put("aiProvider", result.aiProvider());
-            hybrid.put("aiProviderType", result.aiProviderType());
-            hybrid.put("aiInsights", result.aiInsights());
-            hybrid.put("fallbackTriggered", result.fallbackTriggered());
+            hybrid.put("provider", result.aiProvider());
+            hybrid.put("providerType", result.aiProviderType());
+            hybrid.put("fallback", result.fallbackTriggered());
             root.put("hybrid", hybrid);
 
             Map<String, Object> comparison = new LinkedHashMap<>();
             comparison.put("recommendationChanged", result.recommendationChanged());
+            comparison.put("previousRecommendation", result.previousRecommendation());
+            comparison.put("finalRecommendation", result.finalRecommendation());
+            comparison.put("aiInfluencedDecision", result.aiInfluencedDecision());
+            comparison.put("aiInfluenceReason", result.aiInfluenceReason());
+            comparison.put("safetyStatus", result.safetyStatus());
             comparison.put("scoreDifference", result.scoreDifference());
-            comparison.put("hardConstraintsSatisfied", result.hardConstraintsSatisfied());
+            comparison.put("aiInsights", result.aiInsights());
             root.put("comparison", comparison);
 
             return JSON_MAPPER.writeValueAsString(root);

@@ -17,6 +17,8 @@ public record DispatchComparisonResult(
         DecisionResult<DispatchAssignment> rulesOnlyResult,
         DecisionResult<DispatchAssignment> hybridResult,
         boolean recommendationChanged,
+        String previousRecommendation,
+        String finalRecommendation,
         String rulesOnlyDriver,
         String hybridDriver,
         double rulesOnlyScore,
@@ -30,6 +32,9 @@ public record DispatchComparisonResult(
         double aiAdvisoryConfidence,
         double rulesOnlyConfidence,
         double hybridConfidence,
+        boolean aiInfluencedDecision,
+        String aiInfluenceReason,
+        String safetyStatus,
         boolean hardConstraintsSatisfied,
         boolean fallbackTriggered
 ) {
@@ -60,8 +65,12 @@ public record DispatchComparisonResult(
         String providerType = telemetry != null ? telemetry.providerType() : "NONE";
         boolean fallback = telemetry != null && telemetry.fallbackTriggered();
 
+        boolean aiInfluenced = Boolean.TRUE.equals(hybrid.recommendation().metadata().get("aiInfluencedDecision"));
+        String influenceReason = (String) hybrid.recommendation().metadata().getOrDefault("aiInfluenceReason",
+                changed ? "AI contextual risk signals shifted the deterministic selection policy." : "AI confirmed deterministic recommendation.");
+
         List<String> insights = hybrid.explanation() != null
-                ? hybrid.explanation().keyFactors().stream().filter(f -> f.startsWith("AI Context")).toList()
+                ? hybrid.explanation().keyFactors().stream().filter(f -> f.startsWith("AI Context") || f.startsWith("AI Decision Policy")).toList()
                 : Collections.emptyList();
 
         double advConf = telemetry != null && telemetry.advisoryConfidence() != null ? telemetry.advisoryConfidence() : 0.0;
@@ -69,12 +78,15 @@ public record DispatchComparisonResult(
         double hyConf = hybrid.score() != null ? hybrid.score().confidence() : 0.0;
 
         boolean hardSatisfied = hybrid.recommendation().item() != null && hybrid.recommendation().item().isAssigned();
+        String safetyStatus = fallback ? "FALLBACK" : hardSatisfied ? "SAFE" : "ERROR";
 
         return new DispatchComparisonResult(
                 scenario,
                 rulesOnly,
                 hybrid,
                 changed,
+                roDriver,
+                hyDriver,
                 roDriver,
                 hyDriver,
                 roScore,
@@ -88,6 +100,9 @@ public record DispatchComparisonResult(
                 advConf,
                 roConf,
                 hyConf,
+                aiInfluenced,
+                influenceReason,
+                safetyStatus,
                 hardSatisfied,
                 fallback
         );

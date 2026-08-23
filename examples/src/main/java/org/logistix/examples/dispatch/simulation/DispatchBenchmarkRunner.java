@@ -20,13 +20,15 @@ import java.util.Map;
 
 /**
  * Benchmark runner evaluating operational dispatch pipelines across deterministic rules-only,
- * mock AI, and live Spring AI modes with accurate latency and throughput accounting.
+ * mock AI, and live Spring AI modes with accurate latency, AI overhead, and throughput accounting.
  */
 public class DispatchBenchmarkRunner {
 
     public record BenchmarkResult(
             String modeName,
             String providerType,
+            String benchmarkSemantics,
+            int aiCallsPerDecision,
             int totalIterations,
             int successfulDecisions,
             int zeroFeasibilityCount,
@@ -35,7 +37,8 @@ public class DispatchBenchmarkRunner {
             double p50Millis,
             double p95Millis,
             double p99Millis,
-            double avgScore
+            double avgScore,
+            Double aiOverheadMillis
     ) {}
 
     public static BenchmarkResult runBenchmark(
@@ -46,6 +49,18 @@ public class DispatchBenchmarkRunner {
             int iterations,
             int fleetSize
     ) {
+        return runBenchmark(modeName, providerType, pipeline, executor, iterations, fleetSize, null);
+    }
+
+    public static BenchmarkResult runBenchmark(
+            String modeName,
+            String providerType,
+            DecisionPipeline pipeline,
+            DecisionExecutor executor,
+            int iterations,
+            int fleetSize,
+            Double baseRulesLatencyMs
+    ) {
         DispatchScenarioGenerator generator = new DispatchScenarioGenerator();
         List<Driver> drivers = generator.generateDrivers(fleetSize);
 
@@ -53,6 +68,13 @@ public class DispatchBenchmarkRunner {
         int successCount = 0;
         int zeroFeasibleCount = 0;
         double totalScore = 0.0;
+
+        int aiCalls = "RULES_ONLY".equalsIgnoreCase(modeName) ? 0 : 1;
+        String semantics = "RULES_ONLY".equalsIgnoreCase(modeName)
+                ? "Deterministic JVM execution"
+                : "MOCK".equalsIgnoreCase(providerType)
+                ? "In-memory Mock AI (Orchestration test only; not real LLM performance)"
+                : "Live Spring AI model inference";
 
         Instant benchStart = Instant.now();
 
@@ -94,9 +116,15 @@ public class DispatchBenchmarkRunner {
         double opsPerSec = iterations / Math.max(totalDuration.toMillis() / 1000.0, 0.001);
         double avgScore = successCount > 0 ? (totalScore / successCount) : 0.0;
 
+        Double aiOverhead = (baseRulesLatencyMs != null && baseRulesLatencyMs > 0)
+                ? Math.max(0.0, p50Ms - baseRulesLatencyMs)
+                : null;
+
         return new BenchmarkResult(
                 modeName,
                 providerType,
+                semantics,
+                aiCalls,
                 iterations,
                 successCount,
                 zeroFeasibleCount,
@@ -105,7 +133,8 @@ public class DispatchBenchmarkRunner {
                 p50Ms,
                 p95Ms,
                 p99Ms,
-                avgScore
+                avgScore,
+                aiOverhead
         );
     }
 }

@@ -79,47 +79,47 @@ public final class DispatchScenarios {
     public static DispatchScenario scenario2AiAddsContext(Instant now) {
         Shipment shipment = Shipment.builder()
                 .shipmentId(java.util.UUID.fromString("22222222-2222-2222-2222-222222222222"))
-                .origin(Coordinates.of(39.5296, -119.8138)) // Reno, NV
-                .destination(Coordinates.of(38.5816, -121.4944)) // Sacramento, CA (via Donner Pass)
-                .weightKg(14000.0)
-                .volumeM3(35.0)
+                .origin(Coordinates.of(37.7749, -122.4194))
+                .destination(Coordinates.of(34.0522, -118.2437))
+                .weightKg(12000.0)
+                .volumeM3(30.0)
                 .requiredCertifications(Set.of(Certification.HAZMAT))
-                .deliveryDeadline(now.plus(Duration.ofHours(8)))
-                .priority(PriorityLevel.CRITICAL)
+                .deliveryDeadline(now.plus(Duration.ofHours(12)))
+                .priority(PriorityLevel.HIGH)
                 .destinationRegion("US-WEST")
                 .build();
 
-        Driver standardDriver = Driver.builder()
-                .name("Sam 'Speedy' Miller")
-                .currentLocation(Coordinates.of(39.5300, -119.8100)) // Reno Downtown (1 km deadhead)
-                .certifications(Set.of(Certification.HAZMAT))
-                .tier(DriverTier.STANDARD)
-                .rating(4.5)
-                .historicalOnTimeRate(0.89)
-                .remainingHos(Duration.ofHours(8))
-                .build();
-
-        Driver veteranDriver = Driver.builder()
-                .name("Elena 'Mountain' Rostova")
-                .currentLocation(Coordinates.of(39.3280, -120.1833)) // Truckee Mountain Base (45 km deadhead)
+        Driver driver1 = Driver.builder()
+                .name("Alex 'Swift' Rivera")
+                .currentLocation(Coordinates.of(37.8044, -122.2712))
                 .certifications(Set.of(Certification.HAZMAT, Certification.TWIC))
                 .tier(DriverTier.PLATINUM)
-                .rating(4.98)
-                .historicalOnTimeRate(0.99)
+                .rating(5.0)
+                .historicalOnTimeRate(0.98)
                 .remainingHos(Duration.ofHours(11))
+                .build();
+
+        Driver driver2 = Driver.builder()
+                .name("Bob Vance")
+                .currentLocation(Coordinates.of(37.3382, -121.8863))
+                .certifications(Set.of(Certification.HAZMAT))
+                .tier(DriverTier.GOLD)
+                .rating(4.7)
+                .historicalOnTimeRate(0.92)
+                .remainingHos(Duration.ofHours(9))
                 .build();
 
         return new DispatchScenario(
                 "corridor-weather-risk",
-                "Scenario 2: Mountain Pass Blizzard Risk (AI Adds Context)",
-                "Donner Pass blizzard advisory active. Sam has shorter deadhead, but Elena has Platinum winter reliability and substantial HOS buffer.",
+                "Scenario 2: Corridor Rain & Traffic (AI Adds Context)",
+                "Moderate rain on Central Valley corridor. AI enriches explainability with wet-road delay telemetry while confirming top driver.",
                 shipment,
-                List.of(standardDriver, veteranDriver),
-                "BLIZZARD_WARNING_DONNER_PASS",
-                "HIGH",
-                "Chain controls active on I-80 West. Significant delay risk for standard equipment.",
+                List.of(driver1, driver2),
+                "MODERATE_RAIN_CENTRAL_VALLEY",
+                "MEDIUM",
+                "Central Valley corridor experiencing localized rain slowdowns.",
                 now,
-                "AI identifies elevated mountain weather risk, highlighting Elena's HOS buffer and winter track record."
+                "AI identifies wet conditions, adds operational telemetry, and confirms Alex 'Swift' Rivera."
         );
     }
 
@@ -184,11 +184,66 @@ public final class DispatchScenarios {
         );
     }
 
+    /**
+     * Scenario 4: AI Contextual Decision (AI Influences Policy).
+     * Demonstrates AI identifying severe blizzard risk on a standard driver, leading the deterministic policy
+     * to safely select the Platinum winter veteran among two 100% HARD-feasible candidates.
+     */
+    public static DispatchScenario scenario4AiContextualDecision(Instant now) {
+        Shipment shipment = Shipment.builder()
+                .shipmentId(java.util.UUID.fromString("44444444-4444-4444-4444-444444444444"))
+                .origin(Coordinates.of(39.5296, -119.8138)) // Reno, NV
+                .destination(Coordinates.of(38.5816, -121.4944)) // Sacramento, CA (via Donner Pass)
+                .weightKg(14000.0)
+                .volumeM3(35.0)
+                .requiredCertifications(Set.of(Certification.HAZMAT))
+                .deliveryDeadline(now.plus(Duration.ofHours(8)))
+                .priority(PriorityLevel.CRITICAL)
+                .destinationRegion("US-WEST")
+                .build();
+
+        // Driver A: Low deadhead, standard tier. FEASIBLE. Higher deterministic base score.
+        Driver standardDriver = Driver.builder()
+                .name("Sam 'Speedy' Miller")
+                .currentLocation(Coordinates.of(39.5300, -119.8100)) // Reno Downtown (1.0 km deadhead)
+                .certifications(Set.of(Certification.HAZMAT))
+                .tier(DriverTier.STANDARD)
+                .rating(4.5)
+                .historicalOnTimeRate(0.89)
+                .remainingHos(Duration.ofHours(8))
+                .build();
+
+        // Driver B: Moderate deadhead, Platinum winter veteran. FEASIBLE. Robust HOS & rating.
+        Driver mountainVeteran = Driver.builder()
+                .name("Elena 'Mountain' Rostova")
+                .currentLocation(Coordinates.of(39.3280, -120.1833)) // Truckee Mountain Base (45.0 km deadhead)
+                .certifications(Set.of(Certification.HAZMAT, Certification.TWIC))
+                .tier(DriverTier.PLATINUM)
+                .rating(4.98)
+                .historicalOnTimeRate(0.99)
+                .remainingHos(Duration.ofHours(11))
+                .build();
+
+        return new DispatchScenario(
+                "ai-contextual-decision",
+                "Scenario 4: AI Contextual Differentiation",
+                "Donner Pass blizzard warning active. Sam is slightly closer in deadhead; Elena has Platinum winter experience and 11h HOS buffer. AI flags Sam with HIGH risk, shifting deterministic policy to Elena.",
+                shipment,
+                List.of(standardDriver, mountainVeteran),
+                "BLIZZARD_WARNING_DONNER_PASS",
+                "HIGH",
+                "Severe mountain blizzard on I-80. Standard equipment faces chain controls and multi-hour delays.",
+                now,
+                "RULES_ONLY selects Sam 'Speedy' Miller based on deadhead. HYBRID_AI selects Elena 'Mountain' Rostova due to AI contextual risk mitigation."
+        );
+    }
+
     public static List<DispatchScenario> allScenarios(Instant now) {
         return List.of(
                 scenario1AiConfirms(now),
                 scenario2AiAddsContext(now),
-                scenario3SafetyGuardrail(now)
+                scenario3SafetyGuardrail(now),
+                scenario4AiContextualDecision(now)
         );
     }
 

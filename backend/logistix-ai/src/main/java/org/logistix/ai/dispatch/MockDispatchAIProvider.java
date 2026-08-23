@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Deterministic Mock AI Provider for offline testing, CI environments, and simulated failure testing.
- * Tracks invocation counts for assertion verification.
+ * Accurately models contextual risk differentiation for multi-candidate evaluation.
  */
 public class MockDispatchAIProvider implements AIProvider {
 
@@ -56,32 +56,55 @@ public class MockDispatchAIProvider implements AIProvider {
         }
 
         String weather = context.getEnvironmentAttribute("weatherAdvisory", String.class).orElse("CLEAR");
-        RiskLevel risk = weather.contains("STORM") || weather.contains("BLIZZARD") ? RiskLevel.HIGH
-                : weather.contains("RAIN") ? RiskLevel.MEDIUM : RiskLevel.LOW;
-
         DispatchAIRequest request = context.getFactValue("aiRequest", DispatchAIRequest.class).orElse(null);
         List<DispatchAIAdvice> advices = new ArrayList<>();
 
         if (request != null && !request.candidates().isEmpty()) {
             for (CandidatePromptContext c : request.candidates()) {
+                RiskLevel risk;
+                String reasoning;
+                List<String> warnings = Collections.emptyList();
+
+                if (weather.contains("BLIZZARD") || weather.contains("STORM")) {
+                    if ("PLATINUM".equalsIgnoreCase(c.driverTier()) || c.driverRating() >= 4.9) {
+                        risk = RiskLevel.LOW;
+                        reasoning = String.format("Mock AI Analysis: Driver '%s' has Platinum winter corridor qualifications and robust safety margin for %s.",
+                                c.driverName(), weather);
+                    } else {
+                        risk = RiskLevel.HIGH;
+                        warnings = List.of("High blizzard delay risk on mountain corridor", "Standard equipment chain restrictions");
+                        reasoning = String.format("Mock AI Analysis: Driver '%s' has Standard equipment; high vulnerability to %s delay.",
+                                c.driverName(), weather);
+                    }
+                } else if (weather.contains("RAIN")) {
+                    risk = RiskLevel.MEDIUM;
+                    reasoning = String.format("Mock AI Analysis: Driver '%s' evaluated under wet conditions '%s'.", c.driverName(), weather);
+                    warnings = List.of("Wet road caution advised");
+                } else {
+                    risk = RiskLevel.LOW;
+                    reasoning = String.format("Mock AI Analysis: Driver '%s' evaluated under optimal weather condition '%s'.", c.driverName(), weather);
+                }
+
                 advices.add(new DispatchAIAdvice(
                         c.candidateId(),
                         risk,
                         0.92,
-                        String.format("Mock AI Analysis: Driver '%s' evaluated under weather condition '%s'.", c.driverName(), weather),
+                        reasoning,
                         List.of("Weather: " + weather, "Tier: " + c.driverTier()),
-                        risk != RiskLevel.LOW ? List.of("Weather precaution advised") : Collections.emptyList(),
+                        warnings,
                         Instant.now()
                 ));
             }
         } else {
+            RiskLevel fallbackRisk = weather.contains("STORM") || weather.contains("BLIZZARD") ? RiskLevel.HIGH
+                    : weather.contains("RAIN") ? RiskLevel.MEDIUM : RiskLevel.LOW;
             advices.add(new DispatchAIAdvice(
                     "mock-candidate-id",
-                    risk,
+                    fallbackRisk,
                     0.92,
-                    "Mock AI reasoning: Evaluated operational weather and driver safety profile.",
+                    "Mock AI reasoning: Evaluated operational corridor context.",
                     List.of("Weather Condition: " + weather),
-                    risk != RiskLevel.LOW ? List.of("Adverse weather slowdown expected") : Collections.emptyList(),
+                    fallbackRisk != RiskLevel.LOW ? List.of("Adverse weather slowdown expected") : Collections.emptyList(),
                     Instant.now()
             ));
         }
@@ -105,8 +128,8 @@ public class MockDispatchAIProvider implements AIProvider {
         }
 
         String weather = context.getEnvironmentAttribute("weatherAdvisory", String.class).orElse("CLEAR");
-        if (weather.contains("SNOW") || weather.contains("STORM") || weather.contains("RAIN")) {
-            return String.format("Mock AI Analysis: Weather advisory active ('%s'). Driver evaluated with elevated caution.", weather);
+        if (weather.contains("SNOW") || weather.contains("STORM") || weather.contains("BLIZZARD")) {
+            return String.format("Mock AI Analysis: Weather advisory active ('%s'). Elevated corridor risk identified.", weather);
         }
 
         return "Mock AI Analysis: Standard operational conditions. Route and timing optimal.";

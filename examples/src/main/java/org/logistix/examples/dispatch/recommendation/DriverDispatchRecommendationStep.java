@@ -1,11 +1,11 @@
 package org.logistix.examples.dispatch.recommendation;
 
+import org.logistix.ai.dispatch.AITelemetry;
 import org.logistix.domain.decision.DecisionContext;
 import org.logistix.domain.explanation.Explanation;
 import org.logistix.domain.explanation.FeatureContribution;
 import org.logistix.domain.fact.Fact;
 import org.logistix.domain.recommendation.Recommendation;
-import org.logistix.domain.rule.RuleOutcome;
 import org.logistix.domain.score.Score;
 import org.logistix.engine.steps.RecommendationStep;
 import org.logistix.engine.steps.StepMetadata;
@@ -22,8 +22,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Pipeline step creating the final ranked DispatchAssignment recommendation, complete with
- * human-interpretable feature contribution explanations and trade-off telemetry.
+ * Deterministic recommendation and explainability synthesis step.
+ * Integrates deterministic policy evaluation for AI qualitative risk signals among close feasible candidates.
  */
 public class DriverDispatchRecommendationStep implements RecommendationStep {
 
@@ -53,7 +53,7 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
                     List.of("Consider expanding search radius or adjusting delivery SLA window.")
             );
 
-            org.logistix.ai.dispatch.AITelemetry aiTelemetry = context.getFactValue("aiTelemetry", org.logistix.ai.dispatch.AITelemetry.class).orElse(null);
+            AITelemetry aiTelemetry = context.getFactValue("aiTelemetry", AITelemetry.class).orElse(null);
             Map<String, Object> emptyMeta = new LinkedHashMap<>();
             if (aiTelemetry != null) {
                 emptyMeta.put("aiTelemetry", aiTelemetry);
@@ -78,7 +78,34 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
             return StepResult.success(updatedContext, Duration.between(start, Instant.now()), "No candidates to recommend.");
         }
 
-        DispatchCandidate best = rankedCandidates.get(0);
+        // --- Deterministic Policy Evaluation for AI Qualitative Risk Signals ---
+        DispatchCandidate topCandidate = rankedCandidates.get(0);
+        DispatchCandidate selectedCandidate = topCandidate;
+        boolean aiInfluenced = false;
+        String aiInfluenceReason = "AI confirmed deterministic recommendation.";
+
+        AITelemetry aiTelemetry = context.getFactValue("aiTelemetry", AITelemetry.class).orElse(null);
+        String aiStatus = aiTelemetry != null ? aiTelemetry.status() : context.getFactValue("aiEnrichmentStatus", String.class).orElse("NOT_EXECUTED");
+
+        if ("SUCCESS".equalsIgnoreCase(aiStatus) && rankedCandidates.size() > 1) {
+            String topAiAnalysis = topCandidate.aiRiskAnalysis();
+            // If top candidate has HIGH/CRITICAL risk and a close runner-up (within score threshold) has LOW risk
+            if (topAiAnalysis != null && (topAiAnalysis.contains("Risk: HIGH") || topAiAnalysis.contains("Risk: CRITICAL"))) {
+                for (int i = 1; i < Math.min(3, rankedCandidates.size()); i++) {
+                    DispatchCandidate runnerUp = rankedCandidates.get(i);
+                    String runnerUpAi = runnerUp.aiRiskAnalysis();
+                    if (runnerUpAi != null && runnerUpAi.contains("Risk: LOW") && (topCandidate.score().value() - runnerUp.score().value()) <= 0.06) {
+                        selectedCandidate = runnerUp;
+                        aiInfluenced = true;
+                        aiInfluenceReason = String.format("Severe weather risk and corridor bottleneck favored %s (LOW risk) over %s (HIGH risk).",
+                                runnerUp.driver().name(), topCandidate.driver().name());
+                        break;
+                    }
+                }
+            }
+        }
+
+        DispatchCandidate best = selectedCandidate;
         Score bestScore = best.score();
 
         // 1. Build Feature Contributions
@@ -136,38 +163,44 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
         keyFactors.add(String.format("Remaining HOS: %d hours (%s needed)", best.driver().remainingHos().toHours(), best.totalRequiredDrivingDuration().toHours() + "h"));
         keyFactors.add(String.format("Vehicle payload capacity: %.0f kg (Shipment: %.0f kg)", best.driver().vehicleWeightCapacityKg(), best.shipment().weightKg()));
 
-        org.logistix.ai.dispatch.AITelemetry aiTelemetry = context.getFactValue("aiTelemetry", org.logistix.ai.dispatch.AITelemetry.class).orElse(null);
-        String aiStatus = aiTelemetry != null ? aiTelemetry.status() : context.getFactValue("aiEnrichmentStatus", String.class).orElse("NOT_EXECUTED");
-        String aiProvider = aiTelemetry != null ? aiTelemetry.providerName() : context.getFactValue("aiProviderName", String.class).orElse("NONE");
-        Double aiConfidence = aiTelemetry != null ? aiTelemetry.advisoryConfidence() : context.getFactValue("aiAdvisoryConfidence", Double.class).orElse(null);
-        String aiRisk = aiTelemetry != null && aiTelemetry.riskLevel() != null ? aiTelemetry.riskLevel().name() : context.getFactValue("aiRiskLevel", String.class).orElse(null);
-
-        if ("SUCCESS".equals(aiStatus) && best.aiRiskAnalysis() != null) {
-            keyFactors.add(String.format("AI Context [%s - Advisory Conf: %.0f%%]: %s",
-                    aiProvider, (aiConfidence != null ? aiConfidence * 100.0 : 85.0), best.aiRiskAnalysis()));
-        } else if ("FALLBACK_TRIGGERED".equals(aiStatus)) {
-            String fallbackReason = aiTelemetry != null && aiTelemetry.failureReason() != null ? aiTelemetry.failureReason()
-                    : context.getFactValue("aiFallbackReason", String.class).orElse("Unknown error");
-            keyFactors.add("AI Status: Fallback triggered to deterministic rules (" + fallbackReason + ")");
+        if (aiInfluenced) {
+            keyFactors.add(String.format("AI Decision Policy: %s", aiInfluenceReason));
         }
 
-        // 3. Trade-Offs Considered
+        if ("SUCCESS".equalsIgnoreCase(aiStatus)) {
+            String aiProviderName = aiTelemetry != null ? aiTelemetry.providerName() : context.getFactValue("aiProviderName", String.class).orElse("SpringAI");
+            Double aiConf = aiTelemetry != null && aiTelemetry.advisoryConfidence() != null ? aiTelemetry.advisoryConfidence() : context.getFactValue("aiAdvisoryConfidence", Double.class).orElse(0.90);
+            if (best.aiRiskAnalysis() != null && !best.aiRiskAnalysis().isBlank()) {
+                keyFactors.add(String.format("AI Context [%s - Advisory Conf: %.0f%%]: %s", aiProviderName, aiConf * 100.0, best.aiRiskAnalysis()));
+            }
+        } else if ("FALLBACK_TRIGGERED".equalsIgnoreCase(aiStatus)) {
+            keyFactors.add("AI Status: Offline / Fallback Active (Deterministic rules sole decider)");
+        }
+
+        // 3. Trade-offs
         List<String> tradeOffs = new ArrayList<>();
         if (rankedCandidates.size() > 1) {
-            DispatchCandidate runnerUp = rankedCandidates.get(1);
-            tradeOffs.add(String.format("Runner-up '%s' (score: %.3f) had %.1f km deadhead vs %.1f km for '%s'",
+            DispatchCandidate runnerUp = rankedCandidates.get(0).equals(best) ? rankedCandidates.get(1) : rankedCandidates.get(0);
+            tradeOffs.add(String.format("Alternative candidate '%s' (score: %.3f) had %.1f km deadhead vs %.1f km for '%s'",
                     runnerUp.driver().name(), runnerUp.score().value(), runnerUp.deadheadDistanceKm(), best.deadheadDistanceKm(), best.driver().name()));
         }
 
-        // 4. Synthesize Summary Rationale
-        String rationale = String.format("Assigned driver %s (Deterministic Score: %.3f, Decision Confidence: %.2f) with %.1f km deadhead and estimated delivery at %s.",
-                best.driver().name(), bestScore.value(), bestScore.confidence(), best.deadheadDistanceKm(), best.estimatedDeliveryTime());
+        // 4. Recommendation & Explainability
+        String rationale = String.format(
+                "Assigned driver %s (Deterministic Score: %.3f, Decision Confidence: %.2f) with %.1f km deadhead and estimated delivery at %s.%s",
+                best.driver().name(),
+                bestScore.value(),
+                bestScore.confidence(),
+                best.deadheadDistanceKm(),
+                best.estimatedDeliveryTime(),
+                aiInfluenced ? " Contextual policy favored driver due to corridor risk mitigation." : ""
+        );
 
         Explanation explanation = new Explanation(
                 rationale,
                 bestScore.confidence(),
                 contributions,
-                best.ruleOutcomes(),
+                Collections.emptyList(),
                 keyFactors,
                 tradeOffs
         );
@@ -181,14 +214,21 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
         metadata.put("estimatedCostUsd", best.estimatedTotalCostUsd());
         metadata.put("decisionConfidence", bestScore.confidence());
         metadata.put("aiEnrichmentStatus", aiStatus);
-        metadata.put("aiProvider", aiProvider);
-        if (aiConfidence != null) metadata.put("aiAdvisoryConfidence", aiConfidence);
-        if (aiRisk != null) metadata.put("aiRiskLevel", aiRisk);
-        if (aiTelemetry != null) metadata.put("aiTelemetry", aiTelemetry);
+        metadata.put("aiInfluencedDecision", aiInfluenced);
+        metadata.put("aiInfluenceReason", aiInfluenceReason);
+        metadata.put("initialDeterministicLeader", topCandidate.driver().name());
+
+        if (aiTelemetry != null) {
+            metadata.put("aiTelemetry", aiTelemetry);
+            if (aiTelemetry.providerName() != null) metadata.put("aiProvider", aiTelemetry.providerName());
+            if (aiTelemetry.providerType() != null) metadata.put("aiProviderType", aiTelemetry.providerType());
+            if (aiTelemetry.advisoryConfidence() != null) metadata.put("aiAdvisoryConfidence", aiTelemetry.advisoryConfidence());
+            metadata.put("aiRiskLevel", aiTelemetry.riskLevel() != null ? aiTelemetry.riskLevel().name() : "LOW");
+        }
 
         Recommendation<DispatchAssignment> recommendation = new Recommendation<>(
                 assignment,
-                1,
+                0,
                 bestScore,
                 bestScore.confidence(),
                 rationale,
@@ -196,18 +236,15 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
                 metadata
         );
 
-        Duration duration = Duration.between(start, Instant.now());
-
         DecisionContext updatedContext = context
                 .withFact(Fact.of("recommendation", recommendation))
-                .withFact(Fact.of("explanation", explanation))
-                .withFact(Fact.of("finalAssignment", assignment));
+                .withFact(Fact.of("explanation", explanation));
 
         return StepResult.success(
                 updatedContext,
-                duration,
-                List.of(Fact.of("recommendation", recommendation)),
-                "Recommendation generated successfully for best candidate: " + best.driver().name()
+                Duration.between(start, Instant.now()),
+                List.of(Fact.of("recommendation", recommendation), Fact.of("explanation", explanation)),
+                String.format("Assigned %s with composite score %.3f (AI Influenced: %s)", best.driver().name(), bestScore.value(), aiInfluenced)
         );
     }
 }

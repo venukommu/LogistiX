@@ -109,11 +109,15 @@ LogistiX includes a production-grade **Commercial Driver Dispatch Golden Referen
 
 ```bash
 # Run Golden Reference Demo & Benchmark
-mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" -pl :logistix-examples
+mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" -f backend/pom.xml -pl :logistix-examples
 
 # Run Driver Dispatch Decision Lab (Side-by-Side RULES_ONLY vs HYBRID_AI Comparison)
 mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" \
-  -Dexec.args="--compare --scenario all" -pl :logistix-examples
+  -Dexec.args="--compare --scenario all" -f backend/pom.xml -pl :logistix-examples
+
+# Run AI Contextual Differentiation Scenario in JSON format
+mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" \
+  -Dexec.args="--compare --scenario ai-contextual-decision --format json" -f backend/pom.xml -pl :logistix-examples
 ```
 
 ---

@@ -1,208 +1,139 @@
-# LogistiX Architecture Specification: Release Candidate 1 (RC1)
+# LogistiX Architecture
 
-## 1. Executive Summary & Philosophy
-
-**LogistiX** is an open-source, domain-agnostic **Decision Intelligence Platform**.
-
-Rather than treating operational decisions as rigid sequential scripts, LogistiX decouples **Decision Modeling** (describing *what* needs to be evaluated) from **Execution Strategy** (determining *how*, when, and in what topology computation happens).
-
-Every decision problem—whether Driver Dispatch, Carrier Recommendation, Multi-Stop Route Optimization, Dynamic Pricing, Dock Scheduling, or Multi-Agent Negotiation—is modeled as a **`DecisionModel`** executed through pluggable execution strategies.
-
----
-
-## 2. Decision Intelligence Architecture (`logistix-model` & `logistix-engine`)
+## 1. System Architecture Diagram
 
 ```mermaid
-flowchart TD
-    subgraph Client ["Client Invocation"]
-        REQ["<b>DecisionRequest&lt;T&gt;</b> or <b>LogistiX.decision()</b>"]
-    end
-
-    subgraph ModelLayer ["Decision Model Layer (logistix-model)"]
-        DM["<b>DecisionModel</b><br/><i>(Declarative Topology Description)</i>"]
-        
-        subgraph Topologies ["Supported Model Topologies"]
-            DG["<b>DecisionGraph</b><br/><i>(DAG, Cyclic, Branching)</i>"]
-            DP["<b>ModelPipeline</b><br/><i>(Sequential Pipeline)</i>"]
-        end
-        
-        DM --> DG
-        DM --> DP
-    end
-
-    subgraph StrategyLayer ["Execution Strategies (ExecutionStrategy)"]
-        S_SEQ["<b>SequentialExecutionStrategy</b>"]
-        S_PAR["<b>ParallelExecutionStrategy</b>"]
-        S_GRA["<b>GraphExecutionStrategy</b><br/><i>(Topological DAG Sorting)</i>"]
-        S_CON["<b>ConditionalExecutionStrategy</b><br/><i>(Dynamic Edge Branching)</i>"]
-        S_AGE["<b>AgentExecutionStrategy</b><br/><i>(ReAct & Multi-Agent Loops)</i>"]
-    end
-
-    subgraph Planning ["Execution Planning"]
-        PLAN["<b>ExecutionPlan</b><br/>• ExecutionStages<br/>• ExecutionUnits<br/>• ExecutionCursor"]
-    end
-
-    subgraph Runtime ["Execution Engine & Telemetry (logistix-engine)"]
-        STATE["<b>DecisionState</b><br/><i>(Facts, NodeOutputs, Errors, Variables)</i>"]
-        MEM["<b>DecisionMemory</b><br/><i>(Remember, Retrieve, Search)</i>"]
-        VIS["<b>DecisionVisualizer</b><br/><i>(Mermaid, JSON, PlantUML, GraphViz)</i>"]
-        EXEC["<b>DecisionExecutor</b>"]
-        RES["<b>DecisionResult&lt;T&gt;</b>"]
-    end
-
-    REQ --> DM
-    DM --> StrategyLayer
-    StrategyLayer --> PLAN
-    PLAN --> EXEC
-    EXEC --> STATE
-    EXEC --> MEM
-    EXEC --> RES
-    DM --> VIS
-```
-
----
-
-## 3. Pluggable Decision Node Types (`org.logistix.model.node`)
-
-Each node in a `DecisionModel` represents an atomic, isolated unit of work:
-
-| Node Type | Class Contract | Responsibility |
-| :--- | :--- | :--- |
-| **Constraint** | `ConstraintNode` | Evaluates hard feasibility guardrails and soft boundaries. |
-| **Rule** | `RuleNode` | Evaluates deterministic business compliance with priority. |
-| **AI / LLM** | `AINode` | Model inference, contextual reasoning, and prompt execution. |
-| **Memory** | `MemoryNode` | Short-term working context and long-term historical recall. |
-| **Scoring** | `ScoringNode` | Computes normalized multi-criteria objective scores. |
-| **Recommendation** | `RecommendationNode` | Synthesizes top-K candidates with explainable rationale. |
-| **Validation** | `ValidationNode` | Verifies fact schema completeness and invariant checks. |
-| **Transformation** | `TransformationNode` | Data shaping, schema mapping, and derived state computation. |
-| **Aggregation** | `AggregationNode` | Merges outputs from multiple concurrent upstream branches. |
-| **Condition** | `ConditionNode` | Evaluates dynamic boolean expressions for branch routing. |
-| **Delay** | `DelayNode` | Execution throttling, retry backoff, and deliberate delays. |
-
----
-
-## 4. Consolidated Multi-Module Hierarchy
-
-```mermaid
-graph TD
-    api[logistix-api<br/><i>REST Gateway & OpenAPI</i>] --> starter[<b>logistix-spring-boot-starter</b><br/><i>Spring AutoConfiguration</i>]
-    starter --> dsl[<b>logistix-dsl</b><br/><i>Public API & Fluent DSL</i>]
-    examples[logistix-examples<br/><i>Code Samples & Guides</i>] --> dsl
-    
-    dsl --> engine[<b>logistix-engine</b><br/><i>Runtime Execution Engine</i>]
-    dsl --> model[<b>logistix-model</b><br/><i>Decision Modeling & Graphs</i>]
-    engine --> model
-    
-    engine --> domain[<b>logistix-domain</b><br/><i>Pure Framework Domain Core</i>]
-    model --> domain
-    
-    starter --> rag[logistix-rag<br/><i>RAG & Knowledge Retrieval</i>]
-    starter --> ai[logistix-ai<br/><i>Model Providers & Prompts</i>]
-    starter --> sim[logistix-simulation<br/><i>Fleet & Weather Simulators</i>]
-    starter --> bm[logistix-benchmark<br/><i>Model & Decision Evaluators</i>]
-    
-    rag --> domain
-    ai --> domain
-    sim --> domain
-    bm --> domain
-    
-    domain --> common[logistix-common<br/><i>Shared Models & Utilities</i>]
-```
-
----
-
-## 5. API Stability Matrix (RC1)
-
-| Contract Group | Package | Stability |
-| :--- | :--- | :--- |
-| **Public Entry Point** | `org.logistix.dsl.LogistiX` | **Stable** |
-| **Fluent DSLs** | `org.logistix.dsl.fluent.*` | **Stable** |
-| **Annotations** | `org.logistix.dsl.annotation.*` | **Stable** |
-| **Core Domain Models** | `org.logistix.domain.decision.*`, `org.logistix.domain.fact.*` | **Stable** |
-| **Decision Models & Graph** | `org.logistix.model.model.*`, `org.logistix.model.graph.*` | **Stable** |
-| **Execution Strategies** | `org.logistix.model.strategy.*` | **Stable** |
-| **Engine Runtime & SPI** | `org.logistix.engine.executor.*`, `org.logistix.engine.plugins.*` | **Stable** |
-| **Spring Boot Integration** | `org.logistix.starter.autoconfig.*`, `org.logistix.starter.scanner.*` | **Stable** |
-
----
-
-## 6. Hexagonal AI Integration Architecture (`logistix-ai`)
-
-LogistiX adheres to Hexagonal Architecture for all AI/LLM integrations. The generic core domain defines the outbound SPI (`AIProvider`), while adapter implementations reside exclusively in `logistix-ai` and `logistix-spring-boot-starter`.
-
-```mermaid
-flowchart TD
+flowchart TB
     subgraph Core ["LogistiX Core Engine"]
-        Context["DecisionContext"]
-        HardConstraints["Deterministic Feasibility Pruning"]
-        Scoring["Deterministic Scoring Engine"]
+        API["logistix-api<br/>(REST / Event Endpoints)"]
+        STARTER["logistix-spring-boot-starter<br/>(Auto-configuration & Discovery)"]
+        ENGINE["logistix-engine<br/>(Execution Pipeline & Rule Orchestration)"]
+        DSL["logistix-dsl<br/>(Fluent Java DSL)"]
+        MODEL["logistix-model<br/>(Decision Graph, DAG Validation)"]
+        DOMAIN["logistix-domain<br/>(Entities, Value Objects, Domain Events)"]
+        COMMON["logistix-common<br/>(Shared Utils, Geo & Math)"]
     end
 
-    subgraph Port ["Outbound Port (logistix-domain)"]
-        SPI["AIProvider SPI"]
+    subgraph Intelligence ["Decision Intelligence Layer"]
+        AI["logistix-ai<br/>(Spring AI Adapters, Prompts & Telemetry)"]
+        RAG["logistix-rag<br/>(Context Ingestion & Retrieval)"]
+        SIM["logistix-simulation<br/>(Scenario Runner & Monte Carlo)"]
+        BENCH["logistix-benchmark<br/>(JMH & Latency Profiling)"]
     end
 
-    subgraph Adapter ["Infrastructure Adapters (logistix-ai)"]
-        SpringAI["SpringAIDispatchAIProvider"]
-        MockAI["MockDispatchAIProvider"]
-        PromptBuilder["DispatchPromptBuilder"]
-        DTO["DispatchAIAdvice DTO"]
+    subgraph Solutions ["Reference Implementations"]
+        EXAMPLES["logistix-examples<br/>(Commercial Driver Dispatch & Decision Lab)"]
     end
 
-    subgraph LLM ["Model Providers"]
-        Ollama["Local Models (Ollama: llama3.2, mistral)"]
-        Cloud["Cloud Models (OpenAI, Claude, Gemini)"]
-    end
-
-    Core --> HardConstraints
-    HardConstraints -- Feasible Candidates Only --> Scoring
-    Scoring --> SPI
-    SPI -. Implemented by .-> SpringAI
-    SPI -. Implemented by .-> MockAI
-    SpringAI --> PromptBuilder
-    SpringAI --> DTO
-    SpringAI --> Ollama & Cloud
+    API --> ENGINE
+    STARTER --> ENGINE
+    ENGINE --> MODEL
+    ENGINE --> DOMAIN
+    DSL --> ENGINE
+    AI --> DOMAIN
+    RAG --> DOMAIN
+    SIM --> ENGINE
+    BENCH --> ENGINE
+    EXAMPLES --> DSL
+    EXAMPLES --> AI
 ```
-
-### Inviolable AI Principles
-1. **Advisory Role**: AI provides qualitative reasoning, contextual risk assessment, and advisory confidence.
-2. **Inviolable Constraints**: AI **cannot** override hard operational constraints or resurrect unfeasible candidates.
-3. **Resilient Fallback**: Model timeouts or network exceptions trigger instant, zero-downtime fallback to deterministic rules.
-4. **Single-Call Batched Invocation**: Feasible candidates are evaluated collectively in one structured LLM call (`DispatchAIRequest`), eliminating redundant API round-trips.
-5. **No AI Direct Score Authority**: LogistiX deterministic policy retains sole authority over final candidate scoring and selection.
 
 ---
 
-## 7. Production-Grade AI Decision Boundary (Sprint 7.2 & 7.3)
+## 2. Module Responsibilities
+
+| Module | Responsibility | Key Technologies |
+| :--- | :--- | :--- |
+| `logistix-common` | Low-level geometry (Haversine distance), math utilities, common enumerations, and validation primitives. | Java 21 |
+| `logistix-domain` | Core domain entities (DecisionContext, Fact, Rule, Score, Recommendation, Explanation), Domain Events, and SPIs (`RuleProvider`, `ConstraintChecker`, `AIProvider`). Strictly framework-agnostic. | Java 21, Records |
+| `logistix-model` | Declarative Decision Graph representations, node definitions, Directed Acyclic Graph (DAG) validation, topological sorting, and cycle detection. | JGraphT, Java 21 |
+| `logistix-engine` | Synchronous and asynchronous pipeline execution runtime (`DecisionPipeline`, `PipelineStep`, `StepResult`, `DecisionExecutor`). | Virtual Threads (Java 21) |
+| `logistix-dsl` | Fluent, type-safe Java Builder DSL for assembling decision graphs, registering steps, rules, and scoring policies. | Java 21 Fluent API |
+| `logistix-ai` | Production-grade AI decision boundary, Spring AI adapters, structured prompt builders, batched candidate analysis, and typed `AITelemetry`. | Spring AI, Jackson |
+| `logistix-rag` | Retrieval-Augmented Generation context providers and vector integration interfaces. | Java 21 |
+| `logistix-simulation` | Scenario generation, batch simulation, deterministic playback, and disruption modeling. | Java 21 |
+| `logistix-benchmark` | High-throughput JMH benchmarks and micro-benchmarking harnesses. | JMH |
+| `logistix-spring-boot-starter` | Spring Boot 3 auto-configuration, SPI bean discovery, condition evaluators, and lifecycle management. | Spring Boot 3.3.x |
+| `logistix-api` | Enterprise REST endpoints, OpenAPI documentation, and problem-detail error handling. | Spring MVC, Springdoc |
+| `logistix-examples` | Golden Reference Capabilities (Commercial Driver Dispatch, Decision Lab comparison engine). | Java 21, Spring Boot 3 |
+
+---
+
+## 3. Hexagonal / Clean Architecture Boundaries
+
+LogistiX adheres to Hexagonal Architecture principles:
+- **Core Domain Isolation**: `logistix-domain` contains zero dependencies on external frameworks (Spring, Spring AI, JPA).
+- **Port/SPI Interfaces**: Ports (`AIProvider`, `RuleProvider`, `ConstraintChecker`) define abstract contracts.
+- **Adapters**: Concrete implementations (e.g. `SpringAIDispatchAIProvider`, `MockDispatchAIProvider`) implement ports in peripheral modules (`logistix-ai`, `logistix-examples`).
+
+---
+
+## 4. Pipeline Execution Model
+
+Decision pipelines are defined as ordered, composable steps executed sequentially with deterministic state progression:
+
+```mermaid
+sequenceDiagram
+    participant App as Reference App / Client
+    participant Exec as DecisionExecutor
+    participant Ctx as DecisionContext
+    participant Feas as FeasibilityStep
+    participant Rules as RuleEvaluationStep
+    participant Score as MultiCriteriaScoringStep
+    participant AI as AIStep
+    participant Rec as RecommendationStep
+
+    App->>Exec: execute(pipeline, initialContext)
+    Exec->>Feas: execute(context)
+    Feas-->>Exec: StepResult (feasible candidates filtered)
+    Exec->>Rules: execute(context)
+    Rules-->>Exec: StepResult (soft rules & incentives applied)
+    Exec->>Score: execute(context)
+    Score-->>Exec: StepResult (candidates mathematically ranked)
+    opt HYBRID_AI Mode
+        Exec->>AI: execute(context) [1 Batched Call]
+        AI-->>Exec: StepResult (contextual risk analysis & telemetry)
+    end
+    Exec->>Rec: execute(context)
+    Rec-->>Exec: StepResult (deterministic policy evaluation, recommendation & explainability)
+    Exec-->>App: DecisionResult<T>
+```
+
+---
+
+## 5. Production AI Decision Boundary
+
+LogistiX enforces a strict, production-hardened AI decision boundary:
 
 ```mermaid
 flowchart TD
-    AllCandidates["All Candidates Fleet"] --> Constraints["Deterministic Hard Constraints<br/>(HOS, Weight/Volume, Certs, Deadlines)"]
-    Constraints -- Infeasible Rejected --> Pruned["Pruned Set"]
-    Constraints -- Feasible Candidates Only --> Rules["Deterministic Business Rules<br/>(Tiers, Rest Balance, Regional Affinity)"]
-    Rules --> Scoring["Multi-Criteria Scoring Engine<br/>(Proximity, SLA Margin, Cost, Reliability)"]
-    Scoring --> TopN["Top-N Feasible Candidate Selector<br/>(Default: topN = 3)"]
-    TopN --> AIReq["Single Batched Request DTO<br/>(DispatchAIRequest + CandidatePromptContext)"]
-    AIReq --> LLM["Spring AI ChatModel (Single Call)<br/>(llama3.2 / GPT-4o / Claude 3.5)"]
-    LLM --> StructuredDTO["Validated Batched Advice DTO<br/>(RiskLevel, AdvisoryConfidence, Reasoning)"]
-    StructuredDTO --> Policy["Deterministic Decision & Selection Policy"]
+    FeasibleCandidates["Top-N Feasible Candidates (HARD-Validated)"] --> PromptBuilder["DispatchPromptBuilder<br/>(Strict JSON Schema, Zero CoT Tokens)"]
+    PromptBuilder --> LLM["Spring AI / Mock AI Provider<br/>(Single Batched Invocation)"]
+    LLM --> SchemaValidator["Schema Validator & Candidate ID Checker"]
+    
+    subgraph SafetyGuardrail ["LogistiX Boundary Guardrails"]
+        SchemaValidator -- Valid Advice --> Telemetry["AITelemetry Recorder<br/>(Tokens, Latency, Confidence, Risk)"]
+        SchemaValidator -- "Timeout / Parsing Error / Rogue IDs" --> Fallback["Graceful Fallback Handler<br/>(Deterministic Rules Sole Decider)"]
+    end
+    
+    Telemetry --> Policy["Deterministic Policy Evaluator"]
+    Fallback --> Policy
     Policy --> FinalRec["Final Recommendation & Assignment"]
     FinalRec --> Explain["Auditable Explainability<br/>(Deterministic Factors vs. AI Context vs. AITelemetry)"]
 ```
 
 ---
 
-## 8. Golden Reference Capability: Driver Dispatch (Sprint 7.x Closure)
+## 6. Golden Reference Capability: Driver Dispatch
 
 The **AI-Assisted Commercial Driver Dispatch Reference Capability** (`logistix-examples`) is the designated **Golden Reference Implementation** for LogistiX. It exemplifies:
 - **Clean Architecture Separation**: `logistix-domain` contains 0 dependencies on Spring or Spring AI; AI is bridged strictly via the `AIProvider` SPI.
-- **Inviolable Invariant**: "The AI can reason. LogistiX decides."
-- **Regression Standard**: Validated through `DriverDispatchGoldenReferenceTest` covering constraints, rules, scoring, single-call invocation invariant, fail-safe degradation, and explainability feature attribution.
+- **Inviolable Invariant**: *"The deterministic engine establishes what is feasible. AI provides contextual advisory signals. A deterministic policy evaluates those signals. LogistiX retains authority over the final decision."*
+- **Regression Standard**: Validated through `DriverDispatchGoldenReferenceTest` and `DriverDispatchDecisionLabTest`.
 
 ---
 
-## 9. Driver Dispatch Decision Lab (Sprint 8)
+## 7. Driver Dispatch Decision Lab (Sprint 8 & 8.1)
 
 The **Driver Dispatch Decision Lab** (`org.logistix.examples.dispatch.lab`) provides a repeatable comparative framework that benchmarks `RULES_ONLY` vs `HYBRID_AI` on identical operational inputs.
 
@@ -220,15 +151,14 @@ flowchart TD
     Hybrid --> Res2["Augmented DecisionResult"]
     
     Res1 & Res2 --> Comp["DispatchComparisonResult<br/>(Delta, Telemetry, Safety Verification)"]
-    Comp --> Rep1["Terminal Box Reporter (1080p Ready)"]
-    Comp --> Rep2["Structured JSON Reporter"]
+    Comp --> Rep1["Scenario Summary Table"]
+    Comp --> Rep2["Terminal Box Reporter (1080p Ready)"]
+    Comp --> Rep3["Structured JSON Reporter"]
 ```
 
 ### Core Architectural Insights:
 1. **Decision Integrity**: Deterministic feasibility constraints and multi-criteria scoring retain authority.
 2. **Context Enrichment**: AI introduces qualitative environmental risk reasoning without manipulating numerical weights.
-3. **Safety Guarantee**: Unsafe or uncertified candidates are filtered deterministically, ensuring that AI recommendations can never compromise operational safety.
-
-
-
-
+3. **Deterministic Policy Evaluation**: AI advisory signals are evaluated by a deterministic policy among already HARD-feasible candidates.
+4. **Safety Guarantee**: Unsafe or uncertified candidates are filtered deterministically, ensuring that AI recommendations can never compromise operational safety.
+5. **Benchmark Semantics**: Explicitly differentiates zero-AI JVM execution, in-memory Mock AI orchestration testing, and live LLM inference with AI overhead accounting.
