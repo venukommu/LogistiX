@@ -4,16 +4,21 @@ import org.logistix.domain.decision.DecisionContext;
 import org.logistix.domain.ports.AIProvider;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Deterministic Mock AI Provider for offline testing, CI environments, and simulated failure testing.
+ * Tracks invocation counts for assertion verification.
  */
 public class MockDispatchAIProvider implements AIProvider {
 
     private final String providerName;
     private final boolean simulatedOffline;
+    private final AtomicInteger invocationCount = new AtomicInteger(0);
 
     public MockDispatchAIProvider() {
         this("Mock-Deterministic-Dispatch-AI", false);
@@ -28,6 +33,14 @@ public class MockDispatchAIProvider implements AIProvider {
         return new MockDispatchAIProvider("Mock-Offline-AI", true);
     }
 
+    public int getInvocationCount() {
+        return invocationCount.get();
+    }
+
+    public void resetInvocationCount() {
+        invocationCount.set(0);
+    }
+
     @Override
     public String getProviderName() {
         return providerName;
@@ -36,27 +49,50 @@ public class MockDispatchAIProvider implements AIProvider {
     @Override
     @SuppressWarnings("unchecked")
     public <T> Optional<T> infer(DecisionContext context, Class<T> responseType) {
+        invocationCount.incrementAndGet();
+
         if (simulatedOffline) {
             return Optional.empty();
         }
 
-        if (responseType.isAssignableFrom(DispatchAIAdvice.class)) {
-            String weather = context.getEnvironmentAttribute("weatherAdvisory", String.class).orElse("CLEAR");
-            RiskLevel risk = weather.contains("STORM") || weather.contains("BLIZZARD") ? RiskLevel.HIGH : RiskLevel.LOW;
-            double adjustment = (risk == RiskLevel.HIGH) ? -0.05 : 0.05;
+        String weather = context.getEnvironmentAttribute("weatherAdvisory", String.class).orElse("CLEAR");
+        RiskLevel risk = weather.contains("STORM") || weather.contains("BLIZZARD") ? RiskLevel.HIGH
+                : weather.contains("RAIN") ? RiskLevel.MEDIUM : RiskLevel.LOW;
 
-            DispatchAIAdvice advice = new DispatchAIAdvice(
+        DispatchAIRequest request = context.getFactValue("aiRequest", DispatchAIRequest.class).orElse(null);
+        List<DispatchAIAdvice> advices = new ArrayList<>();
+
+        if (request != null && !request.candidates().isEmpty()) {
+            for (CandidatePromptContext c : request.candidates()) {
+                advices.add(new DispatchAIAdvice(
+                        c.candidateId(),
+                        risk,
+                        0.92,
+                        String.format("Mock AI Analysis: Driver '%s' evaluated under weather condition '%s'.", c.driverName(), weather),
+                        List.of("Weather: " + weather, "Tier: " + c.driverTier()),
+                        risk != RiskLevel.LOW ? List.of("Weather precaution advised") : Collections.emptyList(),
+                        0.0,
+                        Instant.now()
+                ));
+            }
+        } else {
+            advices.add(new DispatchAIAdvice(
                     "mock-candidate-id",
                     risk,
                     0.92,
-                    "Mock AI reasoning: Evaluated operational weather and driver historical safety profile.",
-                    List.of("Weather Condition: " + weather, "Driver Experience"),
-                    (risk == RiskLevel.HIGH) ? List.of("Adverse weather slowdown expected") : List.of(),
-                    adjustment,
+                    "Mock AI reasoning: Evaluated operational weather and driver safety profile.",
+                    List.of("Weather Condition: " + weather),
+                    risk != RiskLevel.LOW ? List.of("Adverse weather slowdown expected") : Collections.emptyList(),
+                    0.0,
                     Instant.now()
-            );
+            ));
+        }
 
-            return Optional.of((T) advice);
+        if (responseType.isAssignableFrom(BatchedDispatchAIAdvice.class)) {
+            BatchedDispatchAIAdvice batched = BatchedDispatchAIAdvice.of(advices, "Mock AI evaluated operational corridor.");
+            return Optional.of((T) batched);
+        } else if (responseType.isAssignableFrom(DispatchAIAdvice.class)) {
+            return Optional.of((T) advices.get(0));
         }
 
         return Optional.empty();
@@ -64,6 +100,8 @@ public class MockDispatchAIProvider implements AIProvider {
 
     @Override
     public String generateReasoning(DecisionContext context, Object candidate) {
+        invocationCount.incrementAndGet();
+
         if (simulatedOffline) {
             throw new RuntimeException("Mock AI Provider connection timeout (simulated offline mode)");
         }

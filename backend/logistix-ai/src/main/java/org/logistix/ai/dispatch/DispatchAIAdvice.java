@@ -7,6 +7,7 @@ import java.util.Objects;
 
 /**
  * Strongly typed structured advice emitted by an AI model evaluating a feasible dispatch candidate.
+ * The AI provides qualitative risk signals and context; deterministic LogistiX policies govern all final scoring.
  */
 public record DispatchAIAdvice(
         String candidateId,
@@ -15,7 +16,7 @@ public record DispatchAIAdvice(
         String reasoning,
         List<String> contributingFactors,
         List<String> warnings,
-        double suggestedScoreAdjustment,
+        @Deprecated double suggestedScoreAdjustment,
         Instant timestamp
 ) {
     public DispatchAIAdvice {
@@ -29,9 +30,6 @@ public record DispatchAIAdvice(
         if (advisoryConfidence < 0.0 || advisoryConfidence > 1.0) {
             throw new IllegalArgumentException("Advisory confidence must be between 0.0 and 1.0");
         }
-        if (suggestedScoreAdjustment < -0.50 || suggestedScoreAdjustment > 0.50) {
-            throw new IllegalArgumentException("Suggested score adjustment must be bounded between -0.50 and +0.50");
-        }
     }
 
     public static DispatchAIAdvice of(
@@ -40,8 +38,7 @@ public record DispatchAIAdvice(
             double advisoryConfidence,
             String reasoning,
             List<String> contributingFactors,
-            List<String> warnings,
-            double suggestedScoreAdjustment
+            List<String> warnings
     ) {
         return new DispatchAIAdvice(
                 candidateId,
@@ -50,7 +47,7 @@ public record DispatchAIAdvice(
                 reasoning,
                 contributingFactors,
                 warnings,
-                suggestedScoreAdjustment,
+                0.0,
                 Instant.now()
         );
     }

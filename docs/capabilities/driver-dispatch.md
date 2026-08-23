@@ -15,20 +15,20 @@ graph TD
         D[Feasibility Constraints Filter<br/><i>HOS, Capacity, Certifications, SLA</i>]
         E[Business Rules Engine<br/><i>Driver Tiers, Rest Balancing, Region Affinity</i>]
         F[Multi-Criteria Scoring Engine<br/><i>Proximity, SLA Margin, Reliability, Cost</i>]
-        G{Spring AI Advisor<br/><i>Weather Risk, Unstructured Context</i>}
+        G{Spring AI Advisor<br/><i>Single Batched Invocation</i>}
         H[Recommendation & Explainability Engine<br/><i>Feature Contributions & Trade-offs</i>]
     end
 
     subgraph Outcome ["Decision Result"]
         I[Optimal Dispatch Assignment]
         J[Auditable Feature Contributions]
-        K[Regulatory Compliance Trace]
+        K[Typed AI Telemetry Trace]
     end
 
     A & B & C --> D
     D -- Feasible Candidates Only --> E
     E --> F
-    F -- Scored Candidates --> G
+    F -- Top-N Feasible Candidates --> G
     G -- Enriched Telemetry --> H
     F -. Fallback (If AI Offline) .-> H
     H --> I & J & K
@@ -47,9 +47,11 @@ graph TD
 
 1. **AI is an Advisory Contributor, Not the Authority**: Hard operational feasibility constraints (`HoursOfServiceConstraint`, `VehicleCapacityConstraint`, `DriverCertificationConstraint`, `DeliveryDeadlineConstraint`) are strictly deterministic. An AI model **cannot** override a failed constraint or resurrect an unfeasible candidate.
 2. **Context Isolation**: Only candidates passing ALL feasibility constraints are presented to the AI layer.
-3. **Resilient Degradation**: If the AI model times out or encounters network/parsing issues, the decision pipeline immediately falls back to deterministic decision ranking without downtime.
-4. **Distinct Confidence Accounting**: AI advisory confidence (model certainty) is tracked separately from overall decision composite confidence.
-5. **Explainability Demarcation**: Deterministic feature contributions (e.g. deadhead km, SLA margin) are separated from qualitative AI narrative insights.
+3. **Single Batched Call**: Multiple candidate evaluations are batched into a single Spring AI call (`DispatchAIRequest`), eliminating redundant LLM round-trips.
+4. **No Direct Score Authority**: AI emits qualitative advisory signals (`riskLevel`, `advisoryConfidence`, `reasoning`, `contributingFactors`, `warnings`). LogistiX deterministic policy controls all final scores and selection.
+5. **Resilient Degradation**: If the AI model times out or encounters network/parsing issues, the decision pipeline immediately falls back to deterministic decision ranking without downtime.
+6. **Distinct Confidence Accounting**: AI advisory confidence (model certainty) is tracked separately from overall decision composite confidence.
+7. **Explainability Demarcation**: Deterministic feature contributions (e.g. deadhead km, SLA margin) are separated from qualitative AI narrative insights.
 
 ---
 
@@ -60,8 +62,8 @@ LogistiX supports three operational execution modes for Driver Dispatch:
 | Mode | Pipeline Topology | Primary Use Case |
 | :--- | :--- | :--- |
 | **`RULES_ONLY`** | Constraints $\to$ Business Rules $\to$ Scoring $\to$ Recommendation | High-throughput, offline, or low-compute deterministic dispatching. |
-| **`AI_ASSISTED`** | Constraints $\to$ Business Rules $\to$ AI Contextual Advisor $\to$ Recommendation | Qualitative risk-dominated dispatching where AI provides candidate ordering. |
-| **`HYBRID`** | Constraints $\to$ Business Rules $\to$ Scoring $\to$ AI Advisor $\to$ Recommendation | Production enterprise dispatching combining mathematical optimization with LLM risk reasoning. |
+| **`HYBRID_MOCK`** | Constraints $\to$ Business Rules $\to$ Scoring $\to$ Mock AI $\to$ Recommendation | Local developer testing and continuous integration test suites. |
+| **`HYBRID_LIVE`** | Constraints $\to$ Business Rules $\to$ Scoring $\to$ Spring AI $\to$ Recommendation | Production enterprise dispatching combining mathematical optimization with live LLM risk reasoning. |
 
 ---
 
@@ -92,10 +94,10 @@ Calculates a normalized composite score `[0.0, 1.0]` across balanced dimensions:
 $$\text{Score} = 0.25 \cdot S_{\text{proximity}} + 0.25 \cdot S_{\text{etaMargin}} + 0.20 \cdot S_{\text{performance}} + 0.15 \cdot S_{\text{cost}} + 0.15 \cdot S_{\text{rules}}$$
 
 ### 3.4 Contextual Spring AI Advisor (`SpringAIDispatchAIProvider`)
-- Implements `AIProvider` SPI using Spring AI (`ChatModel` / `ChatClient`).
-- Emits strongly typed, schema-validated structured output: `DispatchAIAdvice` (`riskLevel`, `advisoryConfidence`, `reasoning`, `contributingFactors`, `warnings`, `suggestedScoreAdjustment`).
-- Supports local Ollama models (`llama3.2`, `mistral`) and cloud endpoints (OpenAI, Claude) without domain changes.
-- **Mock Provider (`MockDispatchAIProvider`)**: Guaranteed fast, deterministic execution during CI builds and offline environments.
+- Implements `AIProvider` SPI using Spring AI (`ChatModel`).
+- Single batched evaluation of top-N feasible candidates (default `topN=3`) via `DispatchAIRequest`.
+- Emits strongly typed, schema-validated structured output: `BatchedDispatchAIAdvice` and `DispatchAIAdvice`.
+- Records typed `AITelemetry` (`providerName`, `modelName`, `promptVersion`, `invocationCount`, `latency`, `advisoryConfidence`, `status`).
 
 ---
 
@@ -103,9 +105,9 @@ $$\text{Score} = 0.25 \cdot S_{\text{proximity}} + 0.25 \cdot S_{\text{etaMargin
 
 | Mode | Provider Type | Throughput | Mean Latency (p50) | Tail Latency (p95) | Feasibility Pruning Rate |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **`RULES_ONLY`** | Deterministic JVM | **1,350+ ops/sec** | **0.45 ms** | **1.50 ms** | 100% Feasibility Enforcement |
-| **`HYBRID`** | Mock AI Advisor | **2,000+ ops/sec** | **0.43 ms** | **0.60 ms** | 100% Feasibility Enforcement |
-| **`HYBRID`** | Live Ollama (llama3.2) | *Model-dependent* | *~150–350 ms* | *~450–600 ms* | 100% Feasibility Enforcement |
+| **`RULES_ONLY`** | Deterministic JVM | **1,150+ ops/sec** | **0.43 ms** | **1.87 ms** | 100% Feasibility Enforcement |
+| **`HYBRID_MOCK`** | Mock AI (In-Memory) | **1,690+ ops/sec** | **0.58 ms** | **0.76 ms** | 100% Feasibility Enforcement |
+| **`HYBRID_LIVE`** | Live Ollama (llama3.2) | *Model-dependent* | *~150–350 ms* | *~450–600 ms* | 100% Feasibility Enforcement |
 
 ---
 
@@ -118,6 +120,5 @@ mvn clean test
 
 ### Running the Interactive Reference App:
 ```bash
-cd examples
-mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp"
+mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" -pl :logistix-examples
 ```

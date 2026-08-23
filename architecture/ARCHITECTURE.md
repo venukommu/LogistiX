@@ -169,4 +169,26 @@ flowchart TD
 1. **Advisory Role**: AI provides qualitative reasoning, contextual risk assessment, and advisory confidence.
 2. **Inviolable Constraints**: AI **cannot** override hard operational constraints or resurrect unfeasible candidates.
 3. **Resilient Fallback**: Model timeouts or network exceptions trigger instant, zero-downtime fallback to deterministic rules.
+4. **Single-Call Batched Invocation**: Feasible candidates are evaluated collectively in one structured LLM call (`DispatchAIRequest`), eliminating redundant API round-trips.
+5. **No AI Direct Score Authority**: LogistiX deterministic policy retains sole authority over final candidate scoring and selection.
+
+---
+
+## 7. Production-Grade AI Decision Boundary (Sprint 7.2)
+
+```mermaid
+flowchart TD
+    AllCandidates["All Candidates Fleet"] --> Constraints["Deterministic Hard Constraints<br/>(HOS, Weight/Volume, Certs, Deadlines)"]
+    Constraints -- Infeasible Rejected --> Pruned["Pruned Set"]
+    Constraints -- Feasible Candidates Only --> Rules["Deterministic Business Rules<br/>(Tiers, Rest Balance, Regional Affinity)"]
+    Rules --> Scoring["Multi-Criteria Scoring Engine<br/>(Proximity, SLA Margin, Cost, Reliability)"]
+    Scoring --> TopN["Top-N Feasible Candidate Selector<br/>(Default: topN = 3)"]
+    TopN --> AIReq["Single Batched Request DTO<br/>(DispatchAIRequest + CandidatePromptContext)"]
+    AIReq --> LLM["Spring AI ChatModel (Single Call)<br/>(llama3.2 / GPT-4o / Claude 3.5)"]
+    LLM --> StructuredDTO["Validated Batched Advice DTO<br/>(RiskLevel, AdvisoryConfidence, Reasoning)"]
+    StructuredDTO --> Policy["Deterministic Decision & Selection Policy"]
+    Policy --> FinalRec["Final Recommendation & Assignment"]
+    FinalRec --> Explain["Auditable Explainability<br/>(Deterministic Factors vs. AI Context vs. AITelemetry)"]
+```
+
 

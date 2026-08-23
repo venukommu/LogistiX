@@ -80,6 +80,7 @@ public class LogistiXProperties {
         private String provider = "mock"; // "mock", "spring-ai", "disabled"
         private String model = "llama3.2";
         private Duration timeout = Duration.ofSeconds(3);
+        private boolean fallbackToMock = false;
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -92,5 +93,8 @@ public class LogistiXProperties {
 
         public Duration getTimeout() { return timeout; }
         public void setTimeout(Duration timeout) { this.timeout = timeout; }
+
+        public boolean isFallbackToMock() { return fallbackToMock; }
+        public void setFallbackToMock(boolean fallbackToMock) { this.fallbackToMock = fallbackToMock; }
     }
 }

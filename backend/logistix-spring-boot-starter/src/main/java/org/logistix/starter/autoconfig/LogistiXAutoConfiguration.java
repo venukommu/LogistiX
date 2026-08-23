@@ -138,13 +138,26 @@ public class LogistiXAutoConfiguration {
     @ConditionalOnMissingBean
     public org.logistix.domain.ports.AIProvider logistixAiProvider(
             LogistiXProperties properties,
-            org.springframework.beans.factory.ObjectProvider<org.springframework.ai.chat.model.ChatModel> chatModelProvider
+            org.springframework.beans.factory.ObjectProvider<org.springframework.ai.chat.model.ChatModel> chatModelProvider,
+            org.springframework.beans.factory.ObjectProvider<com.fasterxml.jackson.databind.ObjectMapper> objectMapperProvider
     ) {
         if (properties.getAi().isEnabled() && "spring-ai".equalsIgnoreCase(properties.getAi().getProvider())) {
             org.springframework.ai.chat.model.ChatModel chatModel = chatModelProvider.getIfAvailable();
             if (chatModel != null) {
-                return new org.logistix.ai.dispatch.SpringAIDispatchAIProvider(chatModel, properties.getAi().getModel());
+                com.fasterxml.jackson.databind.ObjectMapper mapper = objectMapperProvider.getIfAvailable();
+                return new org.logistix.ai.dispatch.SpringAIDispatchAIProvider(
+                        chatModel,
+                        properties.getAi().getModel(),
+                        properties.getAi().getTimeout(),
+                        mapper
+                );
             }
+            if (!properties.getAi().isFallbackToMock()) {
+                throw new IllegalStateException("LogistiX AI is configured for 'spring-ai' but no ChatModel bean was found in the application context. " +
+                        "Configure a Spring AI ChatModel starter (e.g. spring-ai-ollama-spring-boot-starter, spring-ai-openai-spring-boot-starter) " +
+                        "or set 'logistix.ai.fallback-to-mock=true' for local development/testing.");
+            }
+            return new org.logistix.ai.dispatch.MockDispatchAIProvider("Mock-Fallback-AI", false);
         }
         return new org.logistix.ai.dispatch.MockDispatchAIProvider("Mock-Dispatch-AI", !properties.getAi().isEnabled());
     }

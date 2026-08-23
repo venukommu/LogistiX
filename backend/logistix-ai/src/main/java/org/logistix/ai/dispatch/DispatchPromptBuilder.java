@@ -5,30 +5,37 @@ import org.logistix.domain.decision.DecisionContext;
 import java.util.Objects;
 
 /**
- * Dedicated prompt builder constructing controlled system and user prompts for operational dispatch reasoning.
+ * Dedicated prompt builder constructing versioned, controlled system and user prompts
+ * for single-call batched operational dispatch reasoning.
  */
 public final class DispatchPromptBuilder {
 
+    public static final String PROMPT_VERSION = "DRIVER_DISPATCH_AI_PROMPT_V1";
+
     private static final String SYSTEM_PROMPT = """
             You are an operational logistics Decision Intelligence Advisor in the LogistiX framework.
-            Your role is to analyze feasible driver candidate pairings for a given shipment order and provide qualitative risk assessments.
+            Your role is to analyze a batch of FEASIBLE candidate driver pairings for a commercial shipment order and provide qualitative risk assessments.
             
-            NON-NEGOTIABLE OPERATIONAL RULES:
-            1. You are strictly an ADVISOR. You do NOT make the final dispatch decision.
-            2. You MUST NOT override or relax hard feasibility constraints (Hours of Service, vehicle payload capacity, required cargo certifications, SLA delivery deadlines).
-            3. You MUST NOT invent or hallucinate drivers, certifications, or geographic facts.
-            4. Distinguish verified deterministic facts from qualitative environmental assumptions (e.g. weather impacts, traffic delays).
-            5. Provide a clear, actionable operational rationale, assess the risk level, and output your recommendation as valid JSON.
+            NON-NEGOTIABLE OPERATIONAL BOUNDARIES:
+            1. You are strictly an ADVISOR. You do NOT define scoring weights or make the final binding dispatch assignment.
+            2. Hard feasibility constraints (HOS limits, vehicle payload weight/volume, required endorsements, delivery deadlines) have ALREADY been strictly evaluated and enforced by the engine. You MUST NOT attempt to override them.
+            3. You MUST NOT invent or hallucinate drivers, certifications, or geographic route data.
+            4. Distinguish verified deterministic facts from qualitative environmental assumptions (e.g. weather advisories, traffic bottlenecks).
+            5. Provide structured advisory signals for each candidate in the batch, including risk level, advisory confidence, concise qualitative reasoning, and warnings.
             
             JSON RESPONSE SCHEMA:
             {
-              "candidateId": "string (UUID or driver ID)",
-              "riskLevel": "LOW | MEDIUM | HIGH | CRITICAL",
-              "advisoryConfidence": number (between 0.0 and 1.0),
-              "reasoning": "string (concise narrative explaining operational risks and trade-offs)",
-              "contributingFactors": ["string"],
-              "warnings": ["string"],
-              "suggestedScoreAdjustment": number (between -0.20 and +0.20)
+              "overallContextAssessment": "string (summary of environmental and corridor conditions)",
+              "candidateAdvices": [
+                {
+                  "candidateId": "string (matching candidateId)",
+                  "riskLevel": "LOW | MEDIUM | HIGH | CRITICAL",
+                  "advisoryConfidence": number (between 0.0 and 1.0),
+                  "reasoning": "string (concise qualitative rationale)",
+                  "contributingFactors": ["string"],
+                  "warnings": ["string"]
+                }
+              ]
             }
             """;
 
@@ -38,26 +45,48 @@ public final class DispatchPromptBuilder {
         return SYSTEM_PROMPT;
     }
 
-    public static String buildUserPrompt(DecisionContext context, Object candidateObj) {
-        Objects.requireNonNull(context, "DecisionContext must not be null");
+    public static String getPromptVersion() {
+        return PROMPT_VERSION;
+    }
 
-        String weather = context.getEnvironmentAttribute("weatherAdvisory", String.class).orElse("CLEAR");
-        String executionMode = context.getParameter("executionMode", String.class).orElse("HYBRID");
+    public static String buildUserPrompt(DispatchAIRequest request) {
+        Objects.requireNonNull(request, "DispatchAIRequest must not be null");
 
         StringBuilder sb = new StringBuilder();
-        sb.append("Please evaluate the following feasible commercial driver candidate for dispatch assignment:\n\n");
-        sb.append("--- ENVIRONMENTAL STATE ---\n");
-        sb.append("Weather Advisory: ").append(weather).append("\n");
-        sb.append("Execution Mode: ").append(executionMode).append("\n\n");
+        sb.append("Please evaluate the following shipment and candidate driver pairings:\n\n");
+        sb.append("--- SHIPMENT ORDER ---\n");
+        sb.append("Shipment ID: ").append(request.shipmentId()).append("\n");
+        sb.append("Origin: ").append(request.originSummary()).append("\n");
+        sb.append("Destination: ").append(request.destinationSummary()).append("\n");
+        sb.append("Weight: ").append(request.weightKg()).append(" kg\n");
+        sb.append("Delivery Deadline: ").append(request.deliveryDeadline()).append("\n");
+        sb.append("Weather Advisory: ").append(request.weatherAdvisory()).append("\n");
+        sb.append("Execution Mode: ").append(request.executionMode()).append("\n\n");
 
-        sb.append("--- CANDIDATE DATA ---\n");
-        if (candidateObj != null) {
-            sb.append(candidateObj.toString()).append("\n");
-        } else {
-            sb.append("No candidate object provided.\n");
+        sb.append("--- FEASIBLE CANDIDATE DRIVERS (").append(request.candidates().size()).append(") ---\n");
+        for (int i = 0; i < request.candidates().size(); i++) {
+            CandidatePromptContext c = request.candidates().get(i);
+            sb.append(String.format("Candidate #%d [%s]:\n", (i + 1), c.candidateId()));
+            sb.append(String.format("  • Driver Name: %s (Tier: %s, Rating: %.2f/5.0, On-Time: %.0f%%)\n",
+                    c.driverName(), c.driverTier(), c.driverRating(), c.historicalOnTimeRate() * 100.0));
+            sb.append(String.format("  • Deadhead: %.1f km (%d min) | Linehaul: %d min | Scheduled Delivery: %s\n",
+                    c.deadheadDistanceKm(), c.deadheadDurationMinutes(), c.linehaulDurationMinutes(), c.scheduledDeliveryTime()));
+            sb.append(String.format("  • Deterministic Pre-Score: %.3f\n", c.deterministicScore()));
+            if (!c.activeRuleSignals().isEmpty()) {
+                sb.append("  • Active Business Rules: ").append(String.join("; ", c.activeRuleSignals())).append("\n");
+            }
+            sb.append("\n");
         }
 
-        sb.append("\nEvaluate candidate route conditions, weather risk, and provide structured operational advice in the specified JSON format.");
+        sb.append("Provide your qualitative risk assessment and contextual advice for each candidate strictly in the specified JSON format.");
         return sb.toString();
+    }
+
+    public static String buildUserPrompt(DecisionContext context, Object candidateObj) {
+        if (candidateObj instanceof DispatchAIRequest req) {
+            return buildUserPrompt(req);
+        }
+        String weather = context.getEnvironmentAttribute("weatherAdvisory", String.class).orElse("CLEAR");
+        return "Environmental Weather Advisory: " + weather + "\nCandidate: " + (candidateObj != null ? candidateObj.toString() : "None");
     }
 }

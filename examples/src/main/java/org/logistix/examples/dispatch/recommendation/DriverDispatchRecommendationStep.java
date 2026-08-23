@@ -129,16 +129,18 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
         keyFactors.add(String.format("Remaining HOS: %d hours (%s needed)", best.driver().remainingHos().toHours(), best.totalRequiredDrivingDuration().toHours() + "h"));
         keyFactors.add(String.format("Vehicle payload capacity: %.0f kg (Shipment: %.0f kg)", best.driver().vehicleWeightCapacityKg(), best.shipment().weightKg()));
 
-        String aiStatus = context.getFactValue("aiEnrichmentStatus", String.class).orElse("NOT_EXECUTED");
-        String aiProvider = context.getFactValue("aiProviderName", String.class).orElse("NONE");
-        Double aiConfidence = context.getFactValue("aiAdvisoryConfidence", Double.class).orElse(null);
-        String aiRisk = context.getFactValue("aiRiskLevel", String.class).orElse(null);
+        org.logistix.ai.dispatch.AITelemetry aiTelemetry = context.getFactValue("aiTelemetry", org.logistix.ai.dispatch.AITelemetry.class).orElse(null);
+        String aiStatus = aiTelemetry != null ? aiTelemetry.status() : context.getFactValue("aiEnrichmentStatus", String.class).orElse("NOT_EXECUTED");
+        String aiProvider = aiTelemetry != null ? aiTelemetry.providerName() : context.getFactValue("aiProviderName", String.class).orElse("NONE");
+        Double aiConfidence = aiTelemetry != null ? aiTelemetry.advisoryConfidence() : context.getFactValue("aiAdvisoryConfidence", Double.class).orElse(null);
+        String aiRisk = aiTelemetry != null && aiTelemetry.riskLevel() != null ? aiTelemetry.riskLevel().name() : context.getFactValue("aiRiskLevel", String.class).orElse(null);
 
         if ("SUCCESS".equals(aiStatus) && best.aiRiskAnalysis() != null) {
             keyFactors.add(String.format("AI Context [%s - Advisory Conf: %.0f%%]: %s",
                     aiProvider, (aiConfidence != null ? aiConfidence * 100.0 : 85.0), best.aiRiskAnalysis()));
         } else if ("FALLBACK_TRIGGERED".equals(aiStatus)) {
-            String fallbackReason = context.getFactValue("aiFallbackReason", String.class).orElse("Unknown error");
+            String fallbackReason = aiTelemetry != null && aiTelemetry.failureReason() != null ? aiTelemetry.failureReason()
+                    : context.getFactValue("aiFallbackReason", String.class).orElse("Unknown error");
             keyFactors.add("AI Status: Fallback triggered to deterministic rules (" + fallbackReason + ")");
         }
 
@@ -175,6 +177,7 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
         metadata.put("aiProvider", aiProvider);
         if (aiConfidence != null) metadata.put("aiAdvisoryConfidence", aiConfidence);
         if (aiRisk != null) metadata.put("aiRiskLevel", aiRisk);
+        if (aiTelemetry != null) metadata.put("aiTelemetry", aiTelemetry);
 
         Recommendation<DispatchAssignment> recommendation = new Recommendation<>(
                 assignment,

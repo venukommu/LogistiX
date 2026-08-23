@@ -1,5 +1,7 @@
 package org.logistix.examples.dispatch;
 
+import org.logistix.ai.dispatch.AITelemetry;
+import org.logistix.ai.dispatch.MockDispatchAIProvider;
 import org.logistix.common.enums.PriorityLevel;
 import org.logistix.common.model.Coordinates;
 import org.logistix.domain.decision.DecisionContext;
@@ -11,7 +13,6 @@ import org.logistix.domain.fact.FactBag;
 import org.logistix.dsl.LogistiX;
 import org.logistix.engine.executor.DecisionExecutor;
 import org.logistix.engine.pipeline.DecisionPipeline;
-import org.logistix.examples.dispatch.ai.DispatchAIAdvisor;
 import org.logistix.examples.dispatch.model.Certification;
 import org.logistix.examples.dispatch.model.DispatchAssignment;
 import org.logistix.examples.dispatch.model.DispatchCandidate;
@@ -31,7 +32,8 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Interactive Reference Application demonstrating AI-Assisted Driver Dispatch on the LogistiX Decision Intelligence Framework.
+ * Interactive Reference Application demonstrating production-grade AI-Assisted Driver Dispatch
+ * on the LogistiX Decision Intelligence Framework.
  */
 public class DriverDispatchReferenceApp {
 
@@ -53,8 +55,8 @@ public class DriverDispatchReferenceApp {
 
         Shipment urgentHazMatShipment = Shipment.builder()
                 .shipmentId(UUID.randomUUID())
-                .origin(Coordinates.of(37.7749, -122.4194)) // San Francisco Distribution Center
-                .destination(Coordinates.of(34.0522, -118.2437)) // Los Angeles Fulfillment Center (~615 km)
+                .origin(Coordinates.of(37.7749, -122.4194)) // San Francisco DC
+                .destination(Coordinates.of(34.0522, -118.2437)) // Los Angeles FC (~615 km)
                 .weightKg(12500.0)
                 .volumeM3(35.0)
                 .requiredCertifications(Set.of(Certification.HAZMAT))
@@ -145,21 +147,26 @@ public class DriverDispatchReferenceApp {
                 rulesResult.score().value(),
                 rulesResult.executionTime().toMillis());
 
-        // 4. Execution in HYBRID mode (Rules + AI Contextual Insights)
-        System.out.println("[4] Executing Mode: HYBRID (Rules + Spring AI / Heuristic Advisor)...");
-        DecisionPipeline hybridPipeline = DispatchDecisionPipelineFactory.createHybridAiPipeline();
+        // 4. Execution in HYBRID mode (Rules + Mock / Spring AI Advisor)
+        System.out.println("[4] Executing Mode: HYBRID (Rules + AI Contextual Advisor [MOCK])...");
+        MockDispatchAIProvider mockProvider = new MockDispatchAIProvider("Mock-Dispatch-AI", false);
+        DecisionPipeline hybridPipeline = DispatchDecisionPipelineFactory.createHybridAiPipeline(mockProvider);
         DecisionResult<DispatchAssignment> hybridResult = executor.execute(hybridPipeline, context);
 
         DispatchAssignment assignment = hybridResult.recommendation().item();
         Explanation exp = hybridResult.explanation();
         Map<String, Object> meta = hybridResult.recommendation().metadata();
+        AITelemetry telemetry = (AITelemetry) meta.get("aiTelemetry");
 
         System.out.println("\n================================================================================");
         System.out.println("   DISPATCH DECISION OUTCOME & EXPLAINABILITY REPORT");
         System.out.println("================================================================================");
         System.out.println("Decision Type          : " + hybridResult.decisionType());
-        System.out.println("AI Provider            : " + meta.getOrDefault("aiProvider", "NONE"));
-        System.out.println("AI Advisory Confidence : " + String.format("%.2f%%", ((Double) meta.getOrDefault("aiAdvisoryConfidence", 0.90)) * 100.0));
+        System.out.println("AI Provider            : " + (telemetry != null ? telemetry.providerName() : "NONE"));
+        System.out.println("AI Provider Type       : MOCK");
+        System.out.println("AI Invocations Count   : " + (telemetry != null ? telemetry.invocationCount() : 0));
+        System.out.println("AI Prompt Version      : " + (telemetry != null ? telemetry.promptVersion() : "N/A"));
+        System.out.println("AI Advisory Confidence : " + String.format("%.2f%%", (telemetry != null && telemetry.advisoryConfidence() != null ? telemetry.advisoryConfidence() * 100.0 : 92.0)));
         System.out.println("Decision Confidence    : " + String.format("%.2f%%", hybridResult.confidence() * 100.0));
         System.out.println("Execution Duration     : " + hybridResult.executionTime().toMillis() + " ms");
         System.out.println("Recommendation         : ASSIGN -> " + assignment.driverName());
@@ -191,14 +198,16 @@ public class DriverDispatchReferenceApp {
         System.out.println("   RESILIENCE TEST: SIMULATED AI PROVIDER OUTAGE (GRACEFUL FALLBACK)");
         System.out.println("================================================================================");
         DecisionPipeline fallbackPipeline = DispatchDecisionPipelineFactory.createHybridAiPipeline(
-                new DispatchAIAdvisor("Mock-Faulty-AI", true) // Simulated offline
+                MockDispatchAIProvider.offline()
         );
 
         DecisionResult<DispatchAssignment> fallbackResult = executor.execute(fallbackPipeline, context);
-        System.out.println("Execution with Faulty AI: " + (fallbackResult.recommendation().item().isAssigned() ? "SUCCESS (Graceful Fallback)" : "FAILED"));
-        System.out.println("Fallback Recommendation : " + fallbackResult.recommendation().item().driverName());
-        System.out.println("Fallback Score          : " + String.format("%.4f", fallbackResult.score().value()));
-        System.out.println("Execution Duration      : " + fallbackResult.executionTime().toMillis() + " ms");
+        AITelemetry fbTelemetry = (AITelemetry) fallbackResult.recommendation().metadata().get("aiTelemetry");
+        System.out.println("Execution with Offline AI : " + (fallbackResult.recommendation().item().isAssigned() ? "SUCCESS (Graceful Fallback)" : "FAILED"));
+        System.out.println("Fallback Status           : " + (fbTelemetry != null ? fbTelemetry.status() : "UNKNOWN"));
+        System.out.println("Fallback Recommendation   : " + fallbackResult.recommendation().item().driverName());
+        System.out.println("Fallback Score            : " + String.format("%.4f", fallbackResult.score().value()));
+        System.out.println("Execution Duration        : " + fallbackResult.executionTime().toMillis() + " ms");
 
         // 6. High-Throughput In-Memory Benchmark Demonstration
         System.out.println("\n================================================================================");
@@ -208,17 +217,17 @@ public class DriverDispatchReferenceApp {
                 "RULES_ONLY", "Deterministic JVM", DispatchDecisionPipelineFactory.createRulesOnlyPipeline(), executor, 100, 20);
 
         DispatchBenchmarkRunner.BenchmarkResult benchHybridMock = DispatchBenchmarkRunner.runBenchmark(
-                "HYBRID", "Mock AI Advisor", DispatchDecisionPipelineFactory.createHybridAiPipeline(), executor, 100, 20);
+                "HYBRID_MOCK", "Mock AI (In-Memory)", DispatchDecisionPipelineFactory.createHybridAiPipeline(), executor, 100, 20);
 
-        System.out.printf("%-14s | %-18s | %-12s | %-10s | %-10s | %-10s | %-10s\n",
+        System.out.printf("%-14s | %-22s | %-12s | %-10s | %-10s | %-10s | %-10s\n",
                 "Mode", "Provider Type", "Throughput", "Total Time", "p50 (ms)", "p95 (ms)", "Avg Score");
-        System.out.println("---------------------------------------------------------------------------------------------");
-        System.out.printf("%-14s | %-18s | %7.1f ops/s | %8d ms | %8.2f ms | %8.2f ms | %8.3f\n",
+        System.out.println("-----------------------------------------------------------------------------------------------------");
+        System.out.printf("%-14s | %-22s | %7.1f ops/s | %8d ms | %8.2f ms | %8.2f ms | %8.3f\n",
                 benchRules.modeName(), benchRules.providerType(), benchRules.opsPerSec(), benchRules.totalDuration().toMillis(),
                 benchRules.p50Millis(), benchRules.p95Millis(), benchRules.avgScore());
-        System.out.printf("%-14s | %-18s | %7.1f ops/s | %8d ms | %8.2f ms | %8.2f ms | %8.3f\n",
+        System.out.printf("%-14s | %-22s | %7.1f ops/s | %8d ms | %8.2f ms | %8.2f ms | %8.3f\n",
                 benchHybridMock.modeName(), benchHybridMock.providerType(), benchHybridMock.opsPerSec(), benchHybridMock.totalDuration().toMillis(),
                 benchHybridMock.p50Millis(), benchHybridMock.p95Millis(), benchHybridMock.avgScore());
-        System.out.println("=============================================================================================\n");
+        System.out.println("=====================================================================================================\n");
     }
 }
