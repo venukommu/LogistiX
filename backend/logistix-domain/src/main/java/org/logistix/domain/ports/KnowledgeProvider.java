@@ -15,7 +15,7 @@ import java.util.Set;
 public interface KnowledgeProvider {
 
     /**
-     * Strongly typed representation of retrieved grounding evidence with full provenance.
+     * Strongly typed representation of retrieved grounding evidence with full provenance and versioning readiness.
      */
     record GroundingDocument(
             String documentId,
@@ -23,6 +23,7 @@ public interface KnowledgeProvider {
             String content,
             String source,
             String section,
+            String version,
             double relevanceScore,
             Map<String, String> metadata
     ) {
@@ -32,18 +33,30 @@ public interface KnowledgeProvider {
             Objects.requireNonNull(content, "content must not be null");
             source = source != null ? source : "enterprise-knowledge-base";
             section = section != null ? section : "general";
+            version = version != null ? version : "1.0";
             metadata = metadata != null ? Map.copyOf(metadata) : Collections.emptyMap();
         }
 
         /**
-         * Backward-compatible constructor for existing integrations.
+         * Backward-compatible 7-argument constructor.
+         */
+        public GroundingDocument(String documentId, String title, String content, String source, String section, double relevanceScore, Map<String, String> metadata) {
+            this(documentId, title, content, source, section, "1.0", relevanceScore, metadata);
+        }
+
+        /**
+         * Backward-compatible 4-argument constructor.
          */
         public GroundingDocument(String documentId, String title, String content, double relevanceScore) {
-            this(documentId, title, content, "enterprise-knowledge-base", "general", relevanceScore, Collections.emptyMap());
+            this(documentId, title, content, "enterprise-knowledge-base", "general", "1.0", relevanceScore, Collections.emptyMap());
         }
 
         public static GroundingDocument of(String documentId, String title, String content, String source, String section, double relevanceScore) {
-            return new GroundingDocument(documentId, title, content, source, section, relevanceScore, Collections.emptyMap());
+            return new GroundingDocument(documentId, title, content, source, section, "1.0", relevanceScore, Collections.emptyMap());
+        }
+
+        public static GroundingDocument of(String documentId, String title, String content, String source, String section, String version, double relevanceScore) {
+            return new GroundingDocument(documentId, title, content, source, section, version, relevanceScore, Collections.emptyMap());
         }
     }
 

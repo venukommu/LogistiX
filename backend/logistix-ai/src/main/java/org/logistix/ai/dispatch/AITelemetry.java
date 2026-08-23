@@ -27,7 +27,7 @@ public record AITelemetry(
         providerName = providerName != null ? providerName : "UNKNOWN";
         providerType = providerType != null ? providerType : "MOCK";
         modelName = modelName != null ? modelName : "UNKNOWN";
-        promptVersion = promptVersion != null ? promptVersion : "DRIVER_DISPATCH_AI_PROMPT_V1";
+        promptVersion = promptVersion != null ? promptVersion : DispatchPromptBuilder.PROMPT_VERSION;
         latency = latency != null ? latency : Duration.ZERO;
         status = status != null ? status : "NOT_EXECUTED";
         correlationId = correlationId != null ? correlationId : "";
@@ -93,7 +93,7 @@ public record AITelemetry(
                 "NONE",
                 "NONE",
                 "NONE",
-                "DRIVER_DISPATCH_AI_PROMPT_V1",
+                DispatchPromptBuilder.PROMPT_VERSION,
                 0,
                 Duration.ZERO,
                 "SKIPPED",

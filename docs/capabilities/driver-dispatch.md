@@ -83,13 +83,26 @@ The **Driver Dispatch Decision Lab** (`org.logistix.examples.dispatch.lab`) prov
 2. **`corridor-weather-risk` (Scenario 2: AI Adds Context)**: Moderate rain slowdown where AI adds operational delay telemetry while confirming the top candidate.
 3. **`safety-constraint-protection` (Scenario 3: Safety Guardrail)**: Infeasible candidates (missing certifications, HOS exhaustion) are rejected by deterministic guardrails, proving that AI cannot override hard constraints.
 4. **`ai-contextual-decision` (Scenario 4: AI Contextual Differentiation)**: Severe mountain blizzard on Donner Pass. Both candidates pass hard constraints. `RULES_ONLY` selects Driver A on proximity; `HYBRID_AI` identifies severe blizzard risk on Driver A, leading the deterministic policy to safely select Driver B (Platinum winter veteran).
+5. **`knowledge-aware-dispatch` (Scenario 5: Knowledge-Aware Grounded Dispatch)**: Severe blizzard on mountain pass with cold-chain pharmaceutical cargo. Pipeline retrieves `DOC-WINTER-001` and `DOC-PHARMA-002`, grounds AI risk signals in verified enterprise operating procedures, validates evidence citations, and presents auditable policy compliance in explainability.
 
 ---
 
-## 6. Screen-Recording Demonstration Commands
+## 6. Knowledge Grounding & Boundary Hardening (Sprint 9 & 9.1)
+
+1. **Untrusted Reference Data Boundary**: Retrieved enterprise documents are treated as untrusted reference data. System instructions explicitly prohibit executing embedded instructions or modifying hard constraints.
+2. **Evidence Citation Validation & Normalization**: The AI may only cite evidence supplied in the request. Unknown, hallucinated, or duplicate document IDs are automatically rejected and de-duplicated.
+3. **Independent Telemetry**: `KnowledgeTelemetry` (retrieval latency, document IDs, status) is tracked separately from `AITelemetry` (LLM latency, model, prompt version `DRIVER_DISPATCH_AI_PROMPT_V2`).
+4. **Explainability Triad**: Decisions strictly segregate:
+   - `[DETERMINISTIC FACTORS]` (Deadhead, HOS, Vehicle capacity, Composite score)
+   - `[KNOWLEDGE EVIDENCE]` (Document ID, Title, Source, Relevance)
+   - `[AI CONTEXTUAL INSIGHTS]` (Corridor risks, Qualitative advisory)
+
+---
+
+## 7. Screen-Recording Demonstration Commands
 
 ```bash
-# Demo 1: Deterministic Rules Only (0 AI calls)
+# Demo 1: Deterministic Rules Only (0 AI calls, 0 Knowledge calls)
 mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" \
   -Dexec.args="--mode rules-only" -f backend/pom.xml -pl :logistix-examples
 
@@ -97,9 +110,9 @@ mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchRef
 mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" \
   -Dexec.args="--mode hybrid" -f backend/pom.xml -pl :logistix-examples
 
-# Demo 3: Side-by-Side Comparison on AI Contextual Decision Scenario
+# Demo 3: Knowledge-Aware Grounded Dispatch (Scenario 5)
 mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" \
-  -Dexec.args="--compare --scenario ai-contextual-decision" -f backend/pom.xml -pl :logistix-examples
+  -Dexec.args="--compare --scenario knowledge-aware-dispatch" -f backend/pom.xml -pl :logistix-examples
 
 # Demo 4: Full Decision Lab Suite with Executive Summary Table
 mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" \
@@ -107,7 +120,7 @@ mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchRef
 
 # Demo 5: Machine-Readable JSON Export
 mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" \
-  -Dexec.args="--compare --scenario ai-contextual-decision --format json" -f backend/pom.xml -pl :logistix-examples
+  -Dexec.args="--compare --scenario knowledge-aware-dispatch --format json" -f backend/pom.xml -pl :logistix-examples
 ```
 
 ---

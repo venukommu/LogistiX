@@ -18,7 +18,7 @@ public record BatchedDispatchAIAdvice(
     public BatchedDispatchAIAdvice {
         candidateAdvices = candidateAdvices != null ? List.copyOf(candidateAdvices) : Collections.emptyList();
         overallContextAssessment = overallContextAssessment != null ? overallContextAssessment : "";
-        promptVersion = promptVersion != null ? promptVersion : "DRIVER_DISPATCH_AI_PROMPT_V1";
+        promptVersion = promptVersion != null ? promptVersion : DispatchPromptBuilder.PROMPT_VERSION;
         timestamp = timestamp != null ? timestamp : Instant.now();
     }
 
@@ -30,10 +30,10 @@ public record BatchedDispatchAIAdvice(
     }
 
     public static BatchedDispatchAIAdvice of(List<DispatchAIAdvice> advices, String overallAssessment) {
-        return new BatchedDispatchAIAdvice(advices, overallAssessment, "DRIVER_DISPATCH_AI_PROMPT_V1", Instant.now());
+        return new BatchedDispatchAIAdvice(advices, overallAssessment, DispatchPromptBuilder.PROMPT_VERSION, Instant.now());
     }
 
     public static BatchedDispatchAIAdvice empty() {
-        return new BatchedDispatchAIAdvice(Collections.emptyList(), "No AI advice generated.", "DRIVER_DISPATCH_AI_PROMPT_V1", Instant.now());
+        return new BatchedDispatchAIAdvice(Collections.emptyList(), "No AI advice generated.", DispatchPromptBuilder.PROMPT_VERSION, Instant.now());
     }
 }

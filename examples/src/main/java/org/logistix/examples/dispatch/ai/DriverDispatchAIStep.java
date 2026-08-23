@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -32,7 +33,8 @@ import java.util.stream.Collectors;
 
 /**
  * Production-grade AI pipeline step evaluating feasible dispatch candidates in a single batched LLM invocation.
- * Enforces typed telemetry, strict graceful fallback, advice validation, evidence citation verification, and zero score manipulation.
+ * Enforces typed telemetry, strict graceful fallback, advice validation, evidence citation verification & normalization,
+ * and zero score manipulation.
  */
 public class DriverDispatchAIStep implements AIStep {
 
@@ -170,7 +172,7 @@ public class DriverDispatchAIStep implements AIStep {
             Double primaryConfidence = 0.90;
             RiskLevel primaryRisk = RiskLevel.LOW;
             Set<String> processedCandidateIds = new HashSet<>();
-            List<String> validatedEvidenceCitations = new ArrayList<>();
+            Set<String> allValidatedEvidence = new LinkedHashSet<>();
 
             if (batchedOpt.isPresent() && !batchedOpt.get().candidateAdvices().isEmpty()) {
                 BatchedDispatchAIAdvice batched = batchedOpt.get();
@@ -187,11 +189,14 @@ public class DriverDispatchAIStep implements AIStep {
                         double validatedConfidence = Math.max(0.0, Math.min(1.0, adv.advisoryConfidence()));
                         RiskLevel validatedRisk = adv.riskLevel() != null ? adv.riskLevel() : RiskLevel.LOW;
 
-                        // Filter and validate evidence citations (reject phantom evidence IDs)
-                        List<String> validCitations = adv.knowledgeEvidenceUsed().stream()
-                                .filter(validEvidenceIds::contains)
+                        // Normalize and filter evidence citations: reject unsupplied/phantom IDs and deduplicate
+                        List<String> rawCitations = adv.knowledgeEvidenceUsed() != null ? adv.knowledgeEvidenceUsed() : Collections.emptyList();
+                        List<String> validCitations = rawCitations.stream()
+                                .filter(id -> id != null && validEvidenceIds.contains(id.trim()))
+                                .map(String::trim)
+                                .distinct()
                                 .toList();
-                        validatedEvidenceCitations.addAll(validCitations);
+                        allValidatedEvidence.addAll(validCitations);
 
                         String evidenceCitationStr = !validCitations.isEmpty()
                                 ? " (Grounded in: " + String.join(", ", validCitations) + ")"
@@ -215,10 +220,13 @@ public class DriverDispatchAIStep implements AIStep {
                     primaryConfidence = Math.max(0.0, Math.min(1.0, adv.advisoryConfidence()));
                     primaryRisk = adv.riskLevel() != null ? adv.riskLevel() : RiskLevel.LOW;
 
-                    List<String> validCitations = adv.knowledgeEvidenceUsed().stream()
-                            .filter(validEvidenceIds::contains)
+                    List<String> rawCitations = adv.knowledgeEvidenceUsed() != null ? adv.knowledgeEvidenceUsed() : Collections.emptyList();
+                    List<String> validCitations = rawCitations.stream()
+                            .filter(id -> id != null && validEvidenceIds.contains(id.trim()))
+                            .map(String::trim)
+                            .distinct()
                             .toList();
-                    validatedEvidenceCitations.addAll(validCitations);
+                    allValidatedEvidence.addAll(validCitations);
 
                     String evidenceCitationStr = !validCitations.isEmpty()
                             ? " (Grounded in: " + String.join(", ", validCitations) + ")"
@@ -261,7 +269,7 @@ public class DriverDispatchAIStep implements AIStep {
                     .withFact(Fact.of("aiProviderName", aiProvider.getProviderName()))
                     .withFact(Fact.of("aiAdvisoryConfidence", primaryConfidence))
                     .withFact(Fact.of("aiRiskLevel", primaryRisk.name()))
-                    .withFact(Fact.of("aiEvidenceUsed", validatedEvidenceCitations));
+                    .withFact(Fact.of("aiEvidenceUsed", List.copyOf(allValidatedEvidence)));
 
             return StepResult.success(
                     updatedContext,
