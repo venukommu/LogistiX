@@ -174,7 +174,7 @@ flowchart TD
 
 ---
 
-## 7. Production-Grade AI Decision Boundary (Sprint 7.2)
+## 7. Production-Grade AI Decision Boundary (Sprint 7.2 & 7.3)
 
 ```mermaid
 flowchart TD
@@ -190,5 +190,15 @@ flowchart TD
     Policy --> FinalRec["Final Recommendation & Assignment"]
     FinalRec --> Explain["Auditable Explainability<br/>(Deterministic Factors vs. AI Context vs. AITelemetry)"]
 ```
+
+---
+
+## 8. Golden Reference Capability: Driver Dispatch (Sprint 7.x Closure)
+
+The **AI-Assisted Commercial Driver Dispatch Reference Capability** (`logistix-examples`) is the designated **Golden Reference Implementation** for LogistiX. It exemplifies:
+- **Clean Architecture Separation**: `logistix-domain` contains 0 dependencies on Spring or Spring AI; AI is bridged strictly via the `AIProvider` SPI.
+- **Inviolable Invariant**: "The AI can reason. LogistiX decides."
+- **Regression Standard**: Validated through `DriverDispatchGoldenReferenceTest` covering constraints, rules, scoring, single-call invocation invariant, fail-safe degradation, and explainability feature attribution.
+
 
 

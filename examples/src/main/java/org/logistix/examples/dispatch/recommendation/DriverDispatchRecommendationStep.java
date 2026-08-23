@@ -53,6 +53,13 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
                     List.of("Consider expanding search radius or adjusting delivery SLA window.")
             );
 
+            org.logistix.ai.dispatch.AITelemetry aiTelemetry = context.getFactValue("aiTelemetry", org.logistix.ai.dispatch.AITelemetry.class).orElse(null);
+            Map<String, Object> emptyMeta = new LinkedHashMap<>();
+            if (aiTelemetry != null) {
+                emptyMeta.put("aiTelemetry", aiTelemetry);
+                emptyMeta.put("aiEnrichmentStatus", aiTelemetry.status());
+            }
+
             DispatchAssignment unassigned = DispatchAssignment.unassigned(null, "No feasible driver available.");
             Recommendation<DispatchAssignment> emptyRec = new Recommendation<>(
                     unassigned,
@@ -61,7 +68,7 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
                     0.0,
                     "No feasible driver available.",
                     noCandidatesExp,
-                    Collections.emptyMap()
+                    emptyMeta
             );
 
             DecisionContext updatedContext = context

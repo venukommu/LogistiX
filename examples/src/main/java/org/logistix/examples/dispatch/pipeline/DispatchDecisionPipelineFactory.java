@@ -1,9 +1,9 @@
 package org.logistix.examples.dispatch.pipeline;
 
+import org.logistix.ai.dispatch.MockDispatchAIProvider;
 import org.logistix.domain.ports.AIProvider;
 import org.logistix.dsl.LogistiX;
 import org.logistix.engine.pipeline.DecisionPipeline;
-import org.logistix.examples.dispatch.ai.DispatchAIAdvisor;
 import org.logistix.examples.dispatch.ai.DriverDispatchAIStep;
 import org.logistix.examples.dispatch.constraints.DriverDispatchConstraintStep;
 import org.logistix.examples.dispatch.recommendation.DriverDispatchRecommendationStep;
@@ -53,14 +53,14 @@ public final class DispatchDecisionPipelineFactory {
     }
 
     /**
-     * Creates a HYBRID pipeline (Constraints -> Business Rules -> Scoring -> AI Advisor -> Recommendation).
+     * Creates a HYBRID pipeline using default Mock AI provider (Constraints -> Business Rules -> Scoring -> AI Advisor -> Recommendation).
      */
     public static DecisionPipeline createHybridAiPipeline() {
-        return createHybridAiPipeline(new DispatchAIAdvisor());
+        return createHybridAiPipeline(new MockDispatchAIProvider());
     }
 
     /**
-     * Creates a HYBRID pipeline using a specific AIProvider SPI implementation.
+     * Creates a HYBRID pipeline using a specific AIProvider SPI implementation (e.g. SpringAIDispatchAIProvider or MockDispatchAIProvider).
      */
     public static DecisionPipeline createHybridAiPipeline(AIProvider aiProvider) {
         return LogistiX.pipelineBuilder(DECISION_TYPE)

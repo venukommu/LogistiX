@@ -7,7 +7,7 @@ import java.util.Objects;
 
 /**
  * Strongly typed structured advice emitted by an AI model evaluating a feasible dispatch candidate.
- * The AI provides qualitative risk signals and context; deterministic LogistiX policies govern all final scoring.
+ * The AI provides purely qualitative risk signals and context; deterministic LogistiX policies govern all final scoring.
  */
 public record DispatchAIAdvice(
         String candidateId,
@@ -16,7 +16,6 @@ public record DispatchAIAdvice(
         String reasoning,
         List<String> contributingFactors,
         List<String> warnings,
-        @Deprecated double suggestedScoreAdjustment,
         Instant timestamp
 ) {
     public DispatchAIAdvice {
@@ -47,7 +46,6 @@ public record DispatchAIAdvice(
                 reasoning,
                 contributingFactors,
                 warnings,
-                0.0,
                 Instant.now()
         );
     }
@@ -60,7 +58,6 @@ public record DispatchAIAdvice(
                 reasoning,
                 Collections.emptyList(),
                 Collections.emptyList(),
-                0.0,
                 Instant.now()
         );
     }

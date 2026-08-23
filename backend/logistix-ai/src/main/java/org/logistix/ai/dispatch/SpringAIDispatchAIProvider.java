@@ -13,6 +13,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -70,10 +71,12 @@ public class SpringAIDispatchAIProvider implements AIProvider {
     public <T> Optional<T> infer(DecisionContext context, Class<T> responseType) {
         try {
             DispatchAIRequest request = context.getFactValue("aiRequest", DispatchAIRequest.class).orElse(null);
-            String userPrompt = request != null
-                    ? DispatchPromptBuilder.buildUserPrompt(request)
-                    : DispatchPromptBuilder.buildUserPrompt(context, null);
+            if (request == null) {
+                log.warn("Spring AI inference skipped: No DispatchAIRequest found in DecisionContext");
+                return Optional.empty();
+            }
 
+            String userPrompt = DispatchPromptBuilder.buildUserPrompt(request);
             String rawJson = callModelWithTimeout(userPrompt);
 
             if (rawJson == null || rawJson.isBlank()) {
@@ -87,7 +90,6 @@ public class SpringAIDispatchAIProvider implements AIProvider {
                 BatchedDispatchAIAdvice batched = objectMapper.readValue(cleanJson, BatchedDispatchAIAdvice.class);
                 return Optional.ofNullable(responseType.cast(batched));
             } else if (responseType.isAssignableFrom(DispatchAIAdvice.class)) {
-                // If single advice is requested, parse directly or extract first candidate from batched advice
                 try {
                     DispatchAIAdvice single = objectMapper.readValue(cleanJson, DispatchAIAdvice.class);
                     return Optional.ofNullable(responseType.cast(single));
@@ -114,10 +116,11 @@ public class SpringAIDispatchAIProvider implements AIProvider {
     public String generateReasoning(DecisionContext context, Object candidate) {
         try {
             DispatchAIRequest request = context.getFactValue("aiRequest", DispatchAIRequest.class).orElse(null);
-            String userPrompt = request != null
-                    ? DispatchPromptBuilder.buildUserPrompt(request)
-                    : DispatchPromptBuilder.buildUserPrompt(context, candidate);
+            if (request == null) {
+                return "Spring AI Analysis: Standard operational assessment.";
+            }
 
+            String userPrompt = DispatchPromptBuilder.buildUserPrompt(request);
             String rawJson = callModelWithTimeout(userPrompt);
 
             if (rawJson == null || rawJson.isBlank()) {

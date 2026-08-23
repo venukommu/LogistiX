@@ -8,6 +8,7 @@ import org.logistix.ai.dispatch.DispatchAIRequest;
 import org.logistix.ai.dispatch.DispatchPromptBuilder;
 import org.logistix.ai.dispatch.MockDispatchAIProvider;
 import org.logistix.ai.dispatch.RiskLevel;
+import org.logistix.ai.dispatch.SpringAIDispatchAIProvider;
 import org.logistix.domain.decision.DecisionContext;
 import org.logistix.domain.fact.Fact;
 import org.logistix.domain.ports.AIProvider;
@@ -22,12 +23,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Production-grade AI pipeline step evaluating feasible dispatch candidates in a single batched LLM invocation.
- * Enforces typed telemetry, strict graceful fallback, and zero score manipulation.
+ * Enforces typed telemetry, strict graceful fallback, advice validation, and zero score manipulation.
  */
 public class DriverDispatchAIStep implements AIStep {
 
@@ -78,20 +81,25 @@ public class DriverDispatchAIStep implements AIStep {
         Shipment shipment = context.getFactValue("shipment", Shipment.class).orElse(null);
         String weather = context.getEnvironmentAttribute("weatherAdvisory", String.class).orElse("CLEAR");
         String executionMode = context.getParameter("executionMode", String.class).orElse("HYBRID");
+        String providerType = (aiProvider instanceof SpringAIDispatchAIProvider) ? "LIVE" : "MOCK";
 
         try {
             int countToEvaluate = Math.min(topN, rankedCandidates.size());
             List<CandidatePromptContext> promptCandidates = new ArrayList<>();
+            Set<String> validCandidateIds = new HashSet<>();
 
             for (int i = 0; i < countToEvaluate; i++) {
                 DispatchCandidate c = rankedCandidates.get(i);
+                String cId = c.driver().driverId().toString();
+                validCandidateIds.add(cId);
+
                 List<String> ruleSignals = c.ruleOutcomes().stream()
                         .filter(RuleOutcome::passed)
                         .map(RuleOutcome::reason)
                         .toList();
 
                 promptCandidates.add(new CandidatePromptContext(
-                        c.driver().driverId().toString(),
+                        cId,
                         c.driver().name(),
                         c.deadheadDistanceKm(),
                         c.deadheadDuration().toMinutes(),
@@ -118,49 +126,80 @@ public class DriverDispatchAIStep implements AIStep {
 
             DecisionContext requestContext = context.withFact(Fact.of("aiRequest", aiRequest));
 
-            // Execute ONE single batched inference call
+            // Execute exactly ONE single batched inference call
             Optional<BatchedDispatchAIAdvice> batchedOpt = aiProvider.infer(requestContext, BatchedDispatchAIAdvice.class);
+            Optional<DispatchAIAdvice> singleOpt = batchedOpt.isEmpty()
+                    ? aiProvider.infer(requestContext, DispatchAIAdvice.class)
+                    : Optional.empty();
+
+            if (batchedOpt.isEmpty() && singleOpt.isEmpty()) {
+                Duration latency = Duration.between(start, Instant.now());
+                AITelemetry telemetry = AITelemetry.fallback(
+                        aiProvider.getProviderName(),
+                        providerType,
+                        (aiProvider instanceof SpringAIDispatchAIProvider sp) ? sp.getModelName() : "Mock",
+                        DispatchPromptBuilder.getPromptVersion(),
+                        latency,
+                        "AI Provider returned empty advice (offline or unparseable)",
+                        context.getParameter("correlationId", String.class).orElse(context.contextId().toString())
+                );
+                DecisionContext updatedContext = context
+                        .withFact(Fact.of("rankedCandidates", rankedCandidates))
+                        .withFact(Fact.of("aiTelemetry", telemetry))
+                        .withFact(Fact.of("aiEnrichmentStatus", "FALLBACK_TRIGGERED"))
+                        .withFact(Fact.of("aiFallbackReason", "AI Provider returned empty advice"))
+                        .withFact(Fact.of("aiProviderName", aiProvider.getProviderName()));
+
+                return StepResult.success(
+                        updatedContext,
+                        latency,
+                        "AI step degraded gracefully to deterministic fallback: Provider returned empty advice"
+                );
+            }
 
             List<DispatchCandidate> enrichedCandidates = new ArrayList<>();
             Double primaryConfidence = 0.90;
             RiskLevel primaryRisk = RiskLevel.LOW;
-            String overallAssessment = "Contextual analysis completed.";
+            Set<String> processedCandidateIds = new HashSet<>();
 
             if (batchedOpt.isPresent() && !batchedOpt.get().candidateAdvices().isEmpty()) {
                 BatchedDispatchAIAdvice batched = batchedOpt.get();
-                overallAssessment = batched.overallContextAssessment();
 
                 for (int i = 0; i < rankedCandidates.size(); i++) {
                     DispatchCandidate c = rankedCandidates.get(i);
-                    Optional<DispatchAIAdvice> adviceOpt = batched.getAdviceForCandidate(c.driver().driverId().toString());
+                    String cId = c.driver().driverId().toString();
+                    Optional<DispatchAIAdvice> adviceOpt = batched.getAdviceForCandidate(cId);
 
-                    if (adviceOpt.isPresent()) {
+                    if (adviceOpt.isPresent() && validCandidateIds.contains(cId) && !processedCandidateIds.contains(cId)) {
                         DispatchAIAdvice adv = adviceOpt.get();
+                        processedCandidateIds.add(cId);
+
+                        double validatedConfidence = Math.max(0.0, Math.min(1.0, adv.advisoryConfidence()));
+                        RiskLevel validatedRisk = adv.riskLevel() != null ? adv.riskLevel() : RiskLevel.LOW;
+
                         String narrative = String.format("[%s - Risk: %s, Conf: %.0f%%]: %s",
-                                aiProvider.getProviderName(), adv.riskLevel(), adv.advisoryConfidence() * 100.0, adv.reasoning());
+                                aiProvider.getProviderName(), validatedRisk, validatedConfidence * 100.0, adv.reasoning());
                         enrichedCandidates.add(c.withAiRiskAnalysis(narrative));
 
                         if (i == 0) {
-                            primaryConfidence = adv.advisoryConfidence();
-                            primaryRisk = adv.riskLevel();
+                            primaryConfidence = validatedConfidence;
+                            primaryRisk = validatedRisk;
                         }
                     } else {
                         enrichedCandidates.add(c);
                     }
                 }
-            } else {
-                // Fallback for single advice return
-                Optional<DispatchAIAdvice> singleOpt = aiProvider.infer(requestContext, DispatchAIAdvice.class);
-                if (singleOpt.isPresent()) {
-                    DispatchAIAdvice adv = singleOpt.get();
-                    primaryConfidence = adv.advisoryConfidence();
-                    primaryRisk = adv.riskLevel();
+            } else if (singleOpt.isPresent()) {
+                DispatchAIAdvice adv = singleOpt.get();
+                if (validCandidateIds.contains(adv.candidateId()) || rankedCandidates.size() == 1) {
+                    primaryConfidence = Math.max(0.0, Math.min(1.0, adv.advisoryConfidence()));
+                    primaryRisk = adv.riskLevel() != null ? adv.riskLevel() : RiskLevel.LOW;
 
                     for (int i = 0; i < rankedCandidates.size(); i++) {
                         DispatchCandidate c = rankedCandidates.get(i);
                         if (i == 0) {
                             String narrative = String.format("[%s - Risk: %s, Conf: %.0f%%]: %s",
-                                    aiProvider.getProviderName(), adv.riskLevel(), adv.advisoryConfidence() * 100.0, adv.reasoning());
+                                    aiProvider.getProviderName(), primaryRisk, primaryConfidence * 100.0, adv.reasoning());
                             enrichedCandidates.add(c.withAiRiskAnalysis(narrative));
                         } else {
                             enrichedCandidates.add(c);
@@ -169,12 +208,15 @@ public class DriverDispatchAIStep implements AIStep {
                 } else {
                     enrichedCandidates.addAll(rankedCandidates);
                 }
+            } else {
+                enrichedCandidates.addAll(rankedCandidates);
             }
 
             Duration latency = Duration.between(start, Instant.now());
             AITelemetry telemetry = AITelemetry.success(
                     aiProvider.getProviderName(),
-                    (aiProvider instanceof org.logistix.ai.dispatch.SpringAIDispatchAIProvider sp) ? sp.getModelName() : "Mock",
+                    providerType,
+                    (aiProvider instanceof SpringAIDispatchAIProvider sp) ? sp.getModelName() : "Mock",
                     DispatchPromptBuilder.getPromptVersion(),
                     1, // Exactly ONE batched call
                     latency,
@@ -203,7 +245,8 @@ public class DriverDispatchAIStep implements AIStep {
             Duration latency = Duration.between(start, Instant.now());
             AITelemetry telemetry = AITelemetry.fallback(
                     aiProvider.getProviderName(),
-                    (aiProvider instanceof org.logistix.ai.dispatch.SpringAIDispatchAIProvider sp) ? sp.getModelName() : "Mock",
+                    providerType,
+                    (aiProvider instanceof SpringAIDispatchAIProvider sp) ? sp.getModelName() : "Mock",
                     DispatchPromptBuilder.getPromptVersion(),
                     latency,
                     e.getMessage(),

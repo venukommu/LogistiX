@@ -1,7 +1,5 @@
 package org.logistix.ai.dispatch;
 
-import org.logistix.domain.decision.DecisionContext;
-
 import java.util.Objects;
 
 /**
@@ -80,13 +78,5 @@ public final class DispatchPromptBuilder {
 
         sb.append("Provide your qualitative risk assessment and contextual advice for each candidate strictly in the specified JSON format.");
         return sb.toString();
-    }
-
-    public static String buildUserPrompt(DecisionContext context, Object candidateObj) {
-        if (candidateObj instanceof DispatchAIRequest req) {
-            return buildUserPrompt(req);
-        }
-        String weather = context.getEnvironmentAttribute("weatherAdvisory", String.class).orElse("CLEAR");
-        return "Environmental Weather Advisory: " + weather + "\nCandidate: " + (candidateObj != null ? candidateObj.toString() : "None");
     }
 }

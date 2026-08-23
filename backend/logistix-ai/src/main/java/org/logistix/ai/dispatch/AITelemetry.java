@@ -6,10 +6,11 @@ import java.util.Objects;
 
 /**
  * Strongly typed telemetry record tracking AI execution metadata, latency, invocation count,
- * provider details, and fallback status.
+ * provider details, provider type (LIVE vs MOCK), and fallback status.
  */
 public record AITelemetry(
         String providerName,
+        String providerType,
         String modelName,
         String promptVersion,
         int invocationCount,
@@ -24,6 +25,7 @@ public record AITelemetry(
 ) {
     public AITelemetry {
         providerName = providerName != null ? providerName : "UNKNOWN";
+        providerType = providerType != null ? providerType : "MOCK";
         modelName = modelName != null ? modelName : "UNKNOWN";
         promptVersion = promptVersion != null ? promptVersion : "DRIVER_DISPATCH_AI_PROMPT_V1";
         latency = latency != null ? latency : Duration.ZERO;
@@ -34,6 +36,7 @@ public record AITelemetry(
 
     public static AITelemetry success(
             String providerName,
+            String providerType,
             String modelName,
             String promptVersion,
             int invocationCount,
@@ -44,6 +47,7 @@ public record AITelemetry(
     ) {
         return new AITelemetry(
                 providerName,
+                providerType,
                 modelName,
                 promptVersion,
                 invocationCount,
@@ -60,6 +64,7 @@ public record AITelemetry(
 
     public static AITelemetry fallback(
             String providerName,
+            String providerType,
             String modelName,
             String promptVersion,
             Duration latency,
@@ -68,6 +73,7 @@ public record AITelemetry(
     ) {
         return new AITelemetry(
                 providerName,
+                providerType,
                 modelName,
                 promptVersion,
                 1,
@@ -84,6 +90,7 @@ public record AITelemetry(
 
     public static AITelemetry skipped(String reason) {
         return new AITelemetry(
+                "NONE",
                 "NONE",
                 "NONE",
                 "DRIVER_DISPATCH_AI_PROMPT_V1",

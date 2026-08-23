@@ -1,5 +1,8 @@
 package org.logistix.examples.dispatch;
 
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.logistix.ai.dispatch.MockDispatchAIProvider;
 import org.logistix.common.enums.PriorityLevel;
 import org.logistix.common.model.Coordinates;
 import org.logistix.domain.decision.DecisionContext;
@@ -11,15 +14,12 @@ import org.logistix.domain.fact.FactBag;
 import org.logistix.dsl.LogistiX;
 import org.logistix.engine.executor.DecisionExecutor;
 import org.logistix.engine.pipeline.DecisionPipeline;
-import org.logistix.examples.dispatch.ai.DispatchAIAdvisor;
 import org.logistix.examples.dispatch.model.DispatchAssignment;
 import org.logistix.examples.dispatch.model.DispatchCandidate;
 import org.logistix.examples.dispatch.model.Driver;
 import org.logistix.examples.dispatch.model.DriverTier;
 import org.logistix.examples.dispatch.model.Shipment;
 import org.logistix.examples.dispatch.pipeline.DispatchDecisionPipelineFactory;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -52,7 +52,7 @@ class ExplainabilitySeparationTest {
                 DispatchCandidate.from(driver, shipment, now, 0.15, "CLEAR")
         );
 
-        DecisionPipeline pipeline = DispatchDecisionPipelineFactory.createHybridAiPipeline(new DispatchAIAdvisor());
+        DecisionPipeline pipeline = DispatchDecisionPipelineFactory.createHybridAiPipeline(new MockDispatchAIProvider());
         DecisionExecutor executor = LogistiX.getContext().getExecutor();
 
         DecisionContext context = DecisionContext.of(

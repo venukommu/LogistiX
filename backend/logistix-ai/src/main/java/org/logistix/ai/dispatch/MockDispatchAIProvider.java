@@ -71,7 +71,6 @@ public class MockDispatchAIProvider implements AIProvider {
                         String.format("Mock AI Analysis: Driver '%s' evaluated under weather condition '%s'.", c.driverName(), weather),
                         List.of("Weather: " + weather, "Tier: " + c.driverTier()),
                         risk != RiskLevel.LOW ? List.of("Weather precaution advised") : Collections.emptyList(),
-                        0.0,
                         Instant.now()
                 ));
             }
@@ -83,7 +82,6 @@ public class MockDispatchAIProvider implements AIProvider {
                     "Mock AI reasoning: Evaluated operational weather and driver safety profile.",
                     List.of("Weather Condition: " + weather),
                     risk != RiskLevel.LOW ? List.of("Adverse weather slowdown expected") : Collections.emptyList(),
-                    0.0,
                     Instant.now()
             ));
         }

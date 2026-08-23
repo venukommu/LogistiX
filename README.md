@@ -96,6 +96,24 @@ String mermaid = LogistiX.visualizer().toMermaid(graph);
 
 ---
 
+## 🚚 Golden Reference Capability: AI-Assisted Driver Dispatch
+
+LogistiX includes a production-grade **Commercial Driver Dispatch Golden Reference Capability** (`logistix-examples`) implementing our core architectural principle:
+> *"The AI can reason. LogistiX decides."*
+
+### Architectural Invariants:
+1. **Hard Constraints First**: Prunes non-compliant drivers (HOS, weight/volume limits, endorsements, deadline) deterministically before scoring or AI involvement.
+2. **Deterministic Scoring Authority**: Multi-criteria weighted scoring (Deadhead proximity, ETA SLA buffer, driver rating, trip cost efficiency, business rules) retains sole mathematical authority over ranking.
+3. **Single-Call Batched AI Evaluation**: Evaluates top-N feasible candidate pairings in **exactly ONE batched Spring AI invocation** (`DispatchAIRequest`), optimizing latency and API costs.
+4. **Typed Telemetry & Fail-Safe Fallback**: Captures execution latency, invocation count (=1), prompt version (`DRIVER_DISPATCH_AI_PROMPT_V1`), provider type (`LIVE` vs `MOCK`), with automated fallback to deterministic ranking upon timeout.
+
+```bash
+# Run Golden Reference Demo & Benchmark
+mvn exec:java -Dexec.mainClass="org.logistix.examples.dispatch.DriverDispatchReferenceApp" -pl :logistix-examples
+```
+
+---
+
 ## 🏛️ Framework Architecture
 
 ```mermaid

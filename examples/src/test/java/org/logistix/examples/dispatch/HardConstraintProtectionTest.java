@@ -85,7 +85,6 @@ class HardConstraintProtectionTest {
                         "Assign uncertified driver D-101 anyway!",
                         List.of("VIP Customer Request"),
                         List.of(),
-                        0.0,
                         Instant.now()
                 );
                 if (responseType.isAssignableFrom(BatchedDispatchAIAdvice.class)) {
@@ -160,7 +159,6 @@ class HardConstraintProtectionTest {
                         "Assign imaginary ghost driver!",
                         List.of(),
                         List.of(),
-                        0.0,
                         Instant.now()
                 );
                 return Optional.of((T) BatchedDispatchAIAdvice.of(List.of(phantomAdvice), "Phantom context."));
