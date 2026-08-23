@@ -182,6 +182,24 @@ public class LogistiXAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "logistix.security", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public org.logistix.domain.action.AuthorizationAuthorityRegistry logistixAuthorizationAuthorityRegistry(LogistiXProperties properties) {
+        properties.getSecurity().validate();
+        org.logistix.domain.action.AuthorizationAuthorityRegistry registry = org.logistix.domain.action.AuthorizationAuthorityRegistry.empty();
+        List<String> configuredAuthorities = properties.getSecurity().getAuthorization().getAuthorities();
+        if (configuredAuthorities != null && !configuredAuthorities.isEmpty()) {
+            for (String auth : configuredAuthorities) {
+                registry.registerAuthority(auth);
+            }
+        } else {
+            registry.registerAuthority(properties.getSecurity().getAuthorization().getResolvedAuthorityId());
+        }
+        registry.freeze();
+        return registry;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "logistix.security", name = "enabled", havingValue = "true", matchIfMissing = true)
     public TrustedApproverRegistry logistixTrustedApproverRegistry(LogistiXProperties properties) {
         properties.getSecurity().validate();
         TrustedApproverRegistry registry = TrustedApproverRegistry.empty();

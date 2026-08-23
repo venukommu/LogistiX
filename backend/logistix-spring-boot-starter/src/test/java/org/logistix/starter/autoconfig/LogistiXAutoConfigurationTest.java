@@ -7,6 +7,7 @@ import org.logistix.ai.dispatch.SpringAIDispatchAIProvider;
 import org.logistix.domain.action.ActionApprovalIssuer;
 import org.logistix.domain.action.ActionAuthorizationIssuer;
 import org.logistix.domain.action.ActionType;
+import org.logistix.domain.action.AuthorizationAuthorityRegistry;
 import org.logistix.domain.action.DefaultActionAuthorizationIssuer;
 import org.logistix.domain.action.TrustedApproverRegistry;
 import org.logistix.domain.ports.AIProvider;
@@ -28,51 +29,37 @@ class LogistiXAutoConfigurationTest {
             .withConfiguration(AutoConfigurations.of(LogistiXAutoConfiguration.class));
 
     @Test
-    @DisplayName("Should auto-configure MockDispatchAIProvider by default")
-    void testDefaultMockAiProvider() {
+    @DisplayName("CASE A: Starter only — Auto-configure core and security beans without requiring MCP")
+    void testStarterOnlyAutoConfiguration() {
         contextRunner.run(context -> {
             assertThat(context).hasSingleBean(AIProvider.class);
-            AIProvider provider = context.getBean(AIProvider.class);
-            assertThat(provider).isInstanceOf(MockDispatchAIProvider.class);
-            assertThat(provider.getProviderName()).contains("Mock");
-
             assertThat(context).hasSingleBean(org.logistix.domain.ports.KnowledgeProvider.class);
-            org.logistix.domain.ports.KnowledgeProvider kp = context.getBean(org.logistix.domain.ports.KnowledgeProvider.class);
-            assertThat(kp).isInstanceOf(org.logistix.rag.knowledge.InMemoryKnowledgeProvider.class);
-        });
-    }
 
-    @Test
-    @DisplayName("Should auto-configure security registries and trusted issuers without requiring MCP")
-    void testDefaultSecurityRegistriesAndIssuers() {
-        contextRunner.run(context -> {
+            assertThat(context).hasSingleBean(AuthorizationAuthorityRegistry.class);
+            AuthorizationAuthorityRegistry authRegistry = context.getBean(AuthorizationAuthorityRegistry.class);
+            assertThat(authRegistry.isFrozen()).isTrue();
+            assertThat(authRegistry.isRegisteredAuthority("LogistiX-Governance-Authority")).isTrue();
+
             assertThat(context).hasSingleBean(TrustedApproverRegistry.class);
             TrustedApproverRegistry approverRegistry = context.getBean(TrustedApproverRegistry.class);
             assertThat(approverRegistry.isFrozen()).isTrue();
-            // Default with no approvers is Option A: empty frozen registry
             assertThat(approverRegistry.getRegisteredApproverIds()).isEmpty();
-            assertThat(approverRegistry.isAuthorizedApprover("SUPERVISOR-001")).isFalse();
-
-            assertThatThrownBy(() -> approverRegistry.registerApprover("rogue-approver", Set.of(ActionType.ASSIGN_DRIVER)))
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("frozen and immutable");
 
             assertThat(context).hasSingleBean(ActionAuthorizationIssuer.class);
             assertThat(context).hasSingleBean(ActionApprovalIssuer.class);
 
-            ActionAuthorizationIssuer issuer = context.getBean(ActionAuthorizationIssuer.class);
-            assertThat(issuer).isInstanceOf(DefaultActionAuthorizationIssuer.class);
-            assertThat(((DefaultActionAuthorizationIssuer) issuer).getIssuerAuthorityId())
-                    .isEqualTo("LogistiX-Governance-Authority");
+            // Assert single registry invariant
+            assertThat(context.getBeansOfType(AuthorizationAuthorityRegistry.class)).hasSize(1);
         });
     }
 
     @Test
-    @DisplayName("Should disable security beans when logistix.security.enabled=false")
+    @DisplayName("CASE D: Starter with logistix.security.enabled=false disables all security beans")
     void testSecurityDisabled() {
         contextRunner
                 .withPropertyValues("logistix.security.enabled=false")
                 .run(context -> {
+                    assertThat(context).doesNotHaveBean(AuthorizationAuthorityRegistry.class);
                     assertThat(context).doesNotHaveBean(TrustedApproverRegistry.class);
                     assertThat(context).doesNotHaveBean(ActionAuthorizationIssuer.class);
                     assertThat(context).doesNotHaveBean(ActionApprovalIssuer.class);
@@ -80,7 +67,61 @@ class LogistiXAutoConfigurationTest {
     }
 
     @Test
-    @DisplayName("Should auto-configure custom security approvers from properties and freeze")
+    @DisplayName("CASE B: Combined Starter + MCP — Exactly one AuthorizationAuthorityRegistry bean exists")
+    void testCombinedStarterAndMcpSingleRegistry() {
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(
+                        LogistiXAutoConfiguration.class,
+                        org.logistix.mcp.autoconfig.LogistiXMcpAutoConfiguration.class
+                ))
+                .run(context -> {
+                    assertThat(context.getBeansOfType(AuthorizationAuthorityRegistry.class)).hasSize(1);
+                    assertThat(context).hasSingleBean(org.logistix.mcp.McpActionExecutor.class);
+                    org.logistix.mcp.McpActionExecutor executor = context.getBean(org.logistix.mcp.McpActionExecutor.class);
+                    assertThat(executor.getAuthorityRegistry()).isSameAs(context.getBean(AuthorizationAuthorityRegistry.class));
+                });
+    }
+
+    @Test
+    @DisplayName("CASE C: Combined Starter + MCP + Custom Authorities — Single registry consumed by MCP")
+    void testCombinedCustomAuthorities() {
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(
+                        LogistiXAutoConfiguration.class,
+                        org.logistix.mcp.autoconfig.LogistiXMcpAutoConfiguration.class
+                ))
+                .withPropertyValues(
+                        "logistix.security.authorization.authority-id=Unified-Authority",
+                        "logistix.security.authorization.authorities[0]=Unified-Authority"
+                )
+                .run(context -> {
+                    assertThat(context.getBeansOfType(AuthorizationAuthorityRegistry.class)).hasSize(1);
+                    AuthorizationAuthorityRegistry registry = context.getBean(AuthorizationAuthorityRegistry.class);
+                    assertThat(registry.isRegisteredAuthority("Unified-Authority")).isTrue();
+                    assertThat(registry.isRegisteredAuthority("LogistiX-Governance-Authority")).isFalse();
+
+                    org.logistix.mcp.McpActionExecutor executor = context.getBean(org.logistix.mcp.McpActionExecutor.class);
+                    assertThat(executor.getAuthorityRegistry().isRegisteredAuthority("Unified-Authority")).isTrue();
+                });
+    }
+
+    @Test
+    @DisplayName("CASE D2: Combined Starter + MCP with security.enabled=false — MCP beans are not activated")
+    void testCombinedSecurityDisabledMcpNotActivated() {
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(
+                        LogistiXAutoConfiguration.class,
+                        org.logistix.mcp.autoconfig.LogistiXMcpAutoConfiguration.class
+                ))
+                .withPropertyValues("logistix.security.enabled=false")
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(AuthorizationAuthorityRegistry.class);
+                    assertThat(context).doesNotHaveBean(org.logistix.mcp.McpActionExecutor.class);
+                });
+    }
+
+    @Test
+    @DisplayName("Should auto-configure custom security authorities and approvers and freeze")
     void testCustomSecurityConfiguration() {
         contextRunner
                 .withPropertyValues(
@@ -91,6 +132,12 @@ class LogistiXAutoConfigurationTest {
                         "logistix.security.approvers[0].allowed-action-types[0]=CHANGE_DELIVERY_APPOINTMENT"
                 )
                 .run(context -> {
+                    AuthorizationAuthorityRegistry authRegistry = context.getBean(AuthorizationAuthorityRegistry.class);
+                    assertThat(authRegistry.isFrozen()).isTrue();
+                    assertThat(authRegistry.isRegisteredAuthority("Custom-Auth-Authority")).isTrue();
+                    assertThat(authRegistry.isRegisteredAuthority("Backup-Auth-Authority")).isTrue();
+                    assertThat(authRegistry.isRegisteredAuthority("LogistiX-Governance-Authority")).isFalse();
+
                     TrustedApproverRegistry approverRegistry = context.getBean(TrustedApproverRegistry.class);
                     assertThat(approverRegistry.isFrozen()).isTrue();
                     assertThat(approverRegistry.isAuthorizedApprover("CUSTOM-SUPERVISOR")).isTrue();

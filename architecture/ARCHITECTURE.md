@@ -205,3 +205,13 @@ LogistiX enforces a strict, technology-neutral governed action architecture wher
 5. **Technology-Neutral Domain**: The core domain (`logistix-domain`) is 100% agnostic and unaware of MCP, HTTP, JSON-RPC, or external tool protocols. The Model Context Protocol exists purely as an infrastructure adapter (`logistix-mcp`).
 6. **Segregated Telemetry & Complete Audit**: `ActionTelemetry` captures governance and execution latencies independently from AI/Knowledge telemetry. Every proposal, decision, and execution is recorded immutably in `ActionAuditEntry`.
 
+---
+
+## 10. Single Authority Registry & MCP Boundary Unification (Sprint 10.2.4)
+
+The application context enforces a strict **Single Authority Registry Invariant**:
+- There is exactly **one** `AuthorizationAuthorityRegistry` per LogistiX application context, owned and configured exclusively by core security (`logistix-spring-boot-starter`).
+- The `logistix-mcp` module is an optional execution adapter that consumes the core `AuthorizationAuthorityRegistry` via `@ConditionalOnBean(AuthorizationAuthorityRegistry.class)` and `@AutoConfigureAfter(LogistiXAutoConfiguration.class)`.
+- MCP cannot define or duplicate authorities, nor can it activate independently when security is disabled (`logistix.security.enabled=false`).
+
+

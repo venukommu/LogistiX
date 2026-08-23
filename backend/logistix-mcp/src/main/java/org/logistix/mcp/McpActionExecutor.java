@@ -1,6 +1,7 @@
 package org.logistix.mcp;
 
 import org.logistix.domain.action.ActionResult;
+import org.logistix.domain.action.AuthorizationAuthorityRegistry;
 import org.logistix.domain.action.AuthorizedAction;
 import org.logistix.domain.ports.ActionExecutor;
 

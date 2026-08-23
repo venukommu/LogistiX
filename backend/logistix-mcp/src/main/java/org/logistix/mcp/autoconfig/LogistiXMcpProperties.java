@@ -2,17 +2,18 @@ package org.logistix.mcp.autoconfig;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.time.Duration;
 
 /**
  * Spring Boot Configuration Properties for LogistiX MCP Adapter.
+ * Contains only transport- and executor-specific properties.
+ * Trust and authority configuration is strictly owned by LogistiX core security.
  */
 @ConfigurationProperties(prefix = "logistix.mcp")
 public class LogistiXMcpProperties {
 
     private boolean enabled = true;
-    private List<String> authorities = new ArrayList<>(List.of("LogistiX-Governance-Authority", "LogistiX-Authority-Primary"));
+    private Duration executionTimeout = Duration.ofSeconds(10);
 
     public boolean isEnabled() {
         return enabled;
@@ -22,11 +23,11 @@ public class LogistiXMcpProperties {
         this.enabled = enabled;
     }
 
-    public List<String> getAuthorities() {
-        return authorities;
+    public Duration getExecutionTimeout() {
+        return executionTimeout;
     }
 
-    public void setAuthorities(List<String> authorities) {
-        this.authorities = authorities;
+    public void setExecutionTimeout(Duration executionTimeout) {
+        this.executionTimeout = executionTimeout;
     }
 }

@@ -1,12 +1,11 @@
-package org.logistix.mcp;
+package org.logistix.domain.action;
 
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * In-process registry of trusted LogistiX Authorization Authorities.
+ * In-process domain registry of trusted LogistiX Authorization Authorities.
  * Enforces a strict configuration lifecycle: configure -> validate -> freeze -> runtime read-only.
  * Validates that an AuthorizedAction was issued by an active, recognized governance authority instance.
  */
