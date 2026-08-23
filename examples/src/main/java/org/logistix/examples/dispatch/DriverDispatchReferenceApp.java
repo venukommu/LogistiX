@@ -125,10 +125,7 @@ public class DriverDispatchReferenceApp {
         }
         System.out.println();
 
-        // 3. Assemble and Execute Decision Pipeline via LogistiX Engine
-        DecisionPipeline hybridPipeline = DispatchDecisionPipelineFactory.createHybridAiPipeline();
         DecisionExecutor executor = LogistiX.getContext().getExecutor();
-
         DecisionContext context = DecisionContext.of(
                 DispatchDecisionPipelineFactory.DECISION_TYPE,
                 FactBag.of(
@@ -136,37 +133,50 @@ public class DriverDispatchReferenceApp {
                         Fact.of("shipment", urgentHazMatShipment)
                 ),
                 Map.of("weatherAdvisory", "MODERATE_RAIN_CENTRAL_VALLEY"),
-                Map.of("executionMode", "HYBRID_AI")
+                Map.of("executionMode", "HYBRID")
         );
 
-        System.out.println("[3] Executing Decision Pipeline via LogistiX Engine...");
-        DecisionResult<DispatchAssignment> result = executor.execute(hybridPipeline, context);
+        // 3. Execution in RULES_ONLY mode
+        System.out.println("[3] Executing Mode: RULES_ONLY (Deterministic Constraints & Scoring)...");
+        DecisionPipeline rulesPipeline = DispatchDecisionPipelineFactory.createRulesOnlyPipeline();
+        DecisionResult<DispatchAssignment> rulesResult = executor.execute(rulesPipeline, context);
+        System.out.printf("    -> Assigned: %s | Score: %.4f | Execution Time: %d ms\n\n",
+                rulesResult.recommendation().item().driverName(),
+                rulesResult.score().value(),
+                rulesResult.executionTime().toMillis());
 
-        // 4. Render Results and Explainability
-        DispatchAssignment assignment = result.recommendation().item();
-        Explanation exp = result.explanation();
+        // 4. Execution in HYBRID mode (Rules + AI Contextual Insights)
+        System.out.println("[4] Executing Mode: HYBRID (Rules + Spring AI / Heuristic Advisor)...");
+        DecisionPipeline hybridPipeline = DispatchDecisionPipelineFactory.createHybridAiPipeline();
+        DecisionResult<DispatchAssignment> hybridResult = executor.execute(hybridPipeline, context);
+
+        DispatchAssignment assignment = hybridResult.recommendation().item();
+        Explanation exp = hybridResult.explanation();
+        Map<String, Object> meta = hybridResult.recommendation().metadata();
 
         System.out.println("\n================================================================================");
         System.out.println("   DISPATCH DECISION OUTCOME & EXPLAINABILITY REPORT");
         System.out.println("================================================================================");
-        System.out.println("Decision Type      : " + result.decisionType());
-        System.out.println("Execution Duration : " + result.executionTime().toMillis() + " ms");
-        System.out.println("Overall Confidence : " + String.format("%.2f%%", result.confidence() * 100.0));
-        System.out.println("Recommendation     : ASSIGN -> " + assignment.driverName());
-        System.out.println("Composite Score    : " + String.format("%.4f", result.score().value()));
-        System.out.println("Deadhead Distance  : " + String.format("%.1f km", assignment.deadheadDistanceKm()));
-        System.out.println("Linehaul Distance  : " + String.format("%.1f km", assignment.mainDistanceKm()));
-        System.out.println("Scheduled Delivery : " + assignment.scheduledDeliveryTime());
-        System.out.println("Estimated Trip Cost: $" + String.format("%.2f", assignment.estimatedCostUsd()));
+        System.out.println("Decision Type          : " + hybridResult.decisionType());
+        System.out.println("AI Provider            : " + meta.getOrDefault("aiProvider", "NONE"));
+        System.out.println("AI Advisory Confidence : " + String.format("%.2f%%", ((Double) meta.getOrDefault("aiAdvisoryConfidence", 0.90)) * 100.0));
+        System.out.println("Decision Confidence    : " + String.format("%.2f%%", hybridResult.confidence() * 100.0));
+        System.out.println("Execution Duration     : " + hybridResult.executionTime().toMillis() + " ms");
+        System.out.println("Recommendation         : ASSIGN -> " + assignment.driverName());
+        System.out.println("Composite Score        : " + String.format("%.4f", hybridResult.score().value()));
+        System.out.println("Deadhead Distance      : " + String.format("%.1f km", assignment.deadheadDistanceKm()));
+        System.out.println("Linehaul Distance      : " + String.format("%.1f km", assignment.mainDistanceKm()));
+        System.out.println("Scheduled Delivery     : " + assignment.scheduledDeliveryTime());
+        System.out.println("Estimated Trip Cost    : $" + String.format("%.2f", assignment.estimatedCostUsd()));
         System.out.println("\nRationale: \n\"" + exp.summary() + "\"");
 
-        System.out.println("\n[Feature Contribution Breakdown]:");
+        System.out.println("\n[Deterministic Feature Contributions]:");
         for (FeatureContribution fc : exp.featureContributions()) {
             System.out.printf("   [%-8s] %-30s (Weight: %.2f, Score: %.2f) -> %s\n",
                     fc.impactDirection(), fc.featureName(), fc.weight(), fc.contributionScore(), fc.rationale());
         }
 
-        System.out.println("\n[Key Decision Factors]:");
+        System.out.println("\n[Key Decision Factors & AI Insights]:");
         for (String factor : exp.keyFactors()) {
             System.out.println("   ✔ " + factor);
         }
@@ -185,30 +195,30 @@ public class DriverDispatchReferenceApp {
         );
 
         DecisionResult<DispatchAssignment> fallbackResult = executor.execute(fallbackPipeline, context);
-        System.out.println("Execution with Faulty AI: " + (fallbackResult.recommendation().item() != null ? "SUCCESS (Graceful Fallback)" : "FAILED"));
+        System.out.println("Execution with Faulty AI: " + (fallbackResult.recommendation().item().isAssigned() ? "SUCCESS (Graceful Fallback)" : "FAILED"));
         System.out.println("Fallback Recommendation : " + fallbackResult.recommendation().item().driverName());
         System.out.println("Fallback Score          : " + String.format("%.4f", fallbackResult.score().value()));
         System.out.println("Execution Duration      : " + fallbackResult.executionTime().toMillis() + " ms");
 
-        // 6. High-Throughput Benchmark Demonstration
+        // 6. High-Throughput In-Memory Benchmark Demonstration
         System.out.println("\n================================================================================");
         System.out.println("   HIGH-THROUGHPUT DECISION BENCHMARK (100 ITERATIONS, 20 DRIVERS)");
         System.out.println("================================================================================");
-        DispatchBenchmarkRunner.BenchmarkResult benchDeterministic = DispatchBenchmarkRunner.runBenchmark(
-                "Deterministic Rules", DispatchDecisionPipelineFactory.createDeterministicPipeline(), executor, 100, 20);
+        DispatchBenchmarkRunner.BenchmarkResult benchRules = DispatchBenchmarkRunner.runBenchmark(
+                "RULES_ONLY", "Deterministic JVM", DispatchDecisionPipelineFactory.createRulesOnlyPipeline(), executor, 100, 20);
 
-        DispatchBenchmarkRunner.BenchmarkResult benchAi = DispatchBenchmarkRunner.runBenchmark(
-                "Hybrid AI-Assisted", DispatchDecisionPipelineFactory.createHybridAiPipeline(), executor, 100, 20);
+        DispatchBenchmarkRunner.BenchmarkResult benchHybridMock = DispatchBenchmarkRunner.runBenchmark(
+                "HYBRID", "Mock AI Advisor", DispatchDecisionPipelineFactory.createHybridAiPipeline(), executor, 100, 20);
 
-        System.out.printf("%-22s | %-12s | %-12s | %-10s | %-10s | %-10s\n",
-                "Mode", "Throughput", "Total Time", "p50 (ms)", "p95 (ms)", "Avg Score");
-        System.out.println("--------------------------------------------------------------------------------");
-        System.out.printf("%-22s | %7.1f ops/s | %8d ms  | %8.2f ms | %8.2f ms | %8.3f\n",
-                benchDeterministic.modeName(), benchDeterministic.opsPerSec(), benchDeterministic.totalDuration().toMillis(),
-                benchDeterministic.p50Millis(), benchDeterministic.p95Millis(), benchDeterministic.avgScore());
-        System.out.printf("%-22s | %7.1f ops/s | %8d ms  | %8.2f ms | %8.2f ms | %8.3f\n",
-                benchAi.modeName(), benchAi.opsPerSec(), benchAi.totalDuration().toMillis(),
-                benchAi.p50Millis(), benchAi.p95Millis(), benchAi.avgScore());
-        System.out.println("================================================================================\n");
+        System.out.printf("%-14s | %-18s | %-12s | %-10s | %-10s | %-10s | %-10s\n",
+                "Mode", "Provider Type", "Throughput", "Total Time", "p50 (ms)", "p95 (ms)", "Avg Score");
+        System.out.println("---------------------------------------------------------------------------------------------");
+        System.out.printf("%-14s | %-18s | %7.1f ops/s | %8d ms | %8.2f ms | %8.2f ms | %8.3f\n",
+                benchRules.modeName(), benchRules.providerType(), benchRules.opsPerSec(), benchRules.totalDuration().toMillis(),
+                benchRules.p50Millis(), benchRules.p95Millis(), benchRules.avgScore());
+        System.out.printf("%-14s | %-18s | %7.1f ops/s | %8d ms | %8.2f ms | %8.2f ms | %8.3f\n",
+                benchHybridMock.modeName(), benchHybridMock.providerType(), benchHybridMock.opsPerSec(), benchHybridMock.totalDuration().toMillis(),
+                benchHybridMock.p50Millis(), benchHybridMock.p95Millis(), benchHybridMock.avgScore());
+        System.out.println("=============================================================================================\n");
     }
 }

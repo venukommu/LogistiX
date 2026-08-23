@@ -19,12 +19,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Benchmark runner comparing Rules-Only vs. AI-Assisted execution over high-load scenario iterations.
+ * Benchmark runner evaluating operational dispatch pipelines across deterministic rules-only,
+ * mock AI, and live Spring AI modes with accurate latency and throughput accounting.
  */
 public class DispatchBenchmarkRunner {
 
     public record BenchmarkResult(
             String modeName,
+            String providerType,
             int totalIterations,
             int successfulDecisions,
             int zeroFeasibilityCount,
@@ -38,6 +40,7 @@ public class DispatchBenchmarkRunner {
 
     public static BenchmarkResult runBenchmark(
             String modeName,
+            String providerType,
             DecisionPipeline pipeline,
             DecisionExecutor executor,
             int iterations,
@@ -88,11 +91,12 @@ public class DispatchBenchmarkRunner {
         double p50Ms = latenciesNanos.get((int) (iterations * 0.50)) / 1_000_000.0;
         double p95Ms = latenciesNanos.get((int) (iterations * 0.95)) / 1_000_000.0;
         double p99Ms = latenciesNanos.get((int) (iterations * 0.99)) / 1_000_000.0;
-        double opsPerSec = iterations / (totalDuration.toMillis() / 1000.0);
+        double opsPerSec = iterations / Math.max(totalDuration.toMillis() / 1000.0, 0.001);
         double avgScore = successCount > 0 ? (totalScore / successCount) : 0.0;
 
         return new BenchmarkResult(
                 modeName,
+                providerType,
                 iterations,
                 successCount,
                 zeroFeasibleCount,

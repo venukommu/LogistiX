@@ -124,3 +124,49 @@ graph TD
 | **Execution Strategies** | `org.logistix.model.strategy.*` | **Stable** |
 | **Engine Runtime & SPI** | `org.logistix.engine.executor.*`, `org.logistix.engine.plugins.*` | **Stable** |
 | **Spring Boot Integration** | `org.logistix.starter.autoconfig.*`, `org.logistix.starter.scanner.*` | **Stable** |
+
+---
+
+## 6. Hexagonal AI Integration Architecture (`logistix-ai`)
+
+LogistiX adheres to Hexagonal Architecture for all AI/LLM integrations. The generic core domain defines the outbound SPI (`AIProvider`), while adapter implementations reside exclusively in `logistix-ai` and `logistix-spring-boot-starter`.
+
+```mermaid
+flowchart TD
+    subgraph Core ["LogistiX Core Engine"]
+        Context["DecisionContext"]
+        HardConstraints["Deterministic Feasibility Pruning"]
+        Scoring["Deterministic Scoring Engine"]
+    end
+
+    subgraph Port ["Outbound Port (logistix-domain)"]
+        SPI["AIProvider SPI"]
+    end
+
+    subgraph Adapter ["Infrastructure Adapters (logistix-ai)"]
+        SpringAI["SpringAIDispatchAIProvider"]
+        MockAI["MockDispatchAIProvider"]
+        PromptBuilder["DispatchPromptBuilder"]
+        DTO["DispatchAIAdvice DTO"]
+    end
+
+    subgraph LLM ["Model Providers"]
+        Ollama["Local Models (Ollama: llama3.2, mistral)"]
+        Cloud["Cloud Models (OpenAI, Claude, Gemini)"]
+    end
+
+    Core --> HardConstraints
+    HardConstraints -- Feasible Candidates Only --> Scoring
+    Scoring --> SPI
+    SPI -. Implemented by .-> SpringAI
+    SPI -. Implemented by .-> MockAI
+    SpringAI --> PromptBuilder
+    SpringAI --> DTO
+    SpringAI --> Ollama & Cloud
+```
+
+### Inviolable AI Principles
+1. **Advisory Role**: AI provides qualitative reasoning, contextual risk assessment, and advisory confidence.
+2. **Inviolable Constraints**: AI **cannot** override hard operational constraints or resurrect unfeasible candidates.
+3. **Resilient Fallback**: Model timeouts or network exceptions trigger instant, zero-downtime fallback to deterministic rules.
+

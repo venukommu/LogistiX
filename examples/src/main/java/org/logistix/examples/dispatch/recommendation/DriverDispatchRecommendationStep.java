@@ -123,13 +123,23 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
                 String.format("Driver tier %s and operational policy outcomes", best.driver().tier())
         ));
 
-        // 2. Key Factors
+        // 2. Key Factors & AI telemetry
         List<String> keyFactors = new ArrayList<>();
-        keyFactors.add(String.format("Driver '%s' achieved the highest composite score of %.3f", best.driver().name(), bestScore.value()));
+        keyFactors.add(String.format("Deterministic composite score: %.3f awarded to driver '%s'", bestScore.value(), best.driver().name()));
         keyFactors.add(String.format("Remaining HOS: %d hours (%s needed)", best.driver().remainingHos().toHours(), best.totalRequiredDrivingDuration().toHours() + "h"));
-        keyFactors.add(String.format("Vehicle capacity: %.0f kg (Shipment: %.0f kg)", best.driver().vehicleWeightCapacityKg(), best.shipment().weightKg()));
-        if (best.aiRiskAnalysis() != null) {
-            keyFactors.add("AI Context: " + best.aiRiskAnalysis());
+        keyFactors.add(String.format("Vehicle payload capacity: %.0f kg (Shipment: %.0f kg)", best.driver().vehicleWeightCapacityKg(), best.shipment().weightKg()));
+
+        String aiStatus = context.getFactValue("aiEnrichmentStatus", String.class).orElse("NOT_EXECUTED");
+        String aiProvider = context.getFactValue("aiProviderName", String.class).orElse("NONE");
+        Double aiConfidence = context.getFactValue("aiAdvisoryConfidence", Double.class).orElse(null);
+        String aiRisk = context.getFactValue("aiRiskLevel", String.class).orElse(null);
+
+        if ("SUCCESS".equals(aiStatus) && best.aiRiskAnalysis() != null) {
+            keyFactors.add(String.format("AI Context [%s - Advisory Conf: %.0f%%]: %s",
+                    aiProvider, (aiConfidence != null ? aiConfidence * 100.0 : 85.0), best.aiRiskAnalysis()));
+        } else if ("FALLBACK_TRIGGERED".equals(aiStatus)) {
+            String fallbackReason = context.getFactValue("aiFallbackReason", String.class).orElse("Unknown error");
+            keyFactors.add("AI Status: Fallback triggered to deterministic rules (" + fallbackReason + ")");
         }
 
         // 3. Trade-Offs Considered
@@ -141,7 +151,7 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
         }
 
         // 4. Synthesize Summary Rationale
-        String rationale = String.format("Assigned driver %s (Score: %.3f, Confidence: %.2f) with %.1f km deadhead and estimated delivery at %s.",
+        String rationale = String.format("Assigned driver %s (Deterministic Score: %.3f, Decision Confidence: %.2f) with %.1f km deadhead and estimated delivery at %s.",
                 best.driver().name(), bestScore.value(), bestScore.confidence(), best.deadheadDistanceKm(), best.estimatedDeliveryTime());
 
         Explanation explanation = new Explanation(
@@ -160,6 +170,11 @@ public class DriverDispatchRecommendationStep implements RecommendationStep {
         metadata.put("deadheadDistanceKm", best.deadheadDistanceKm());
         metadata.put("mainDistanceKm", best.mainDistanceKm());
         metadata.put("estimatedCostUsd", best.estimatedTotalCostUsd());
+        metadata.put("decisionConfidence", bestScore.confidence());
+        metadata.put("aiEnrichmentStatus", aiStatus);
+        metadata.put("aiProvider", aiProvider);
+        if (aiConfidence != null) metadata.put("aiAdvisoryConfidence", aiConfidence);
+        if (aiRisk != null) metadata.put("aiRiskLevel", aiRisk);
 
         Recommendation<DispatchAssignment> recommendation = new Recommendation<>(
                 assignment,

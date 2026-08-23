@@ -17,6 +17,7 @@ public class LogistiXProperties {
     private boolean strictConstraints = true;
     private boolean failFastOnRuleError = false;
     private boolean autoDiscovery = true;
+    private AiProperties ai = new AiProperties();
 
     public boolean isEnabled() {
         return enabled;
@@ -64,5 +65,32 @@ public class LogistiXProperties {
 
     public void setAutoDiscovery(boolean autoDiscovery) {
         this.autoDiscovery = autoDiscovery;
+    }
+
+    public AiProperties getAi() {
+        return ai;
+    }
+
+    public void setAi(AiProperties ai) {
+        this.ai = ai;
+    }
+
+    public static class AiProperties {
+        private boolean enabled = true;
+        private String provider = "mock"; // "mock", "spring-ai", "disabled"
+        private String model = "llama3.2";
+        private Duration timeout = Duration.ofSeconds(3);
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getProvider() { return provider; }
+        public void setProvider(String provider) { this.provider = provider; }
+
+        public String getModel() { return model; }
+        public void setModel(String model) { this.model = model; }
+
+        public Duration getTimeout() { return timeout; }
+        public void setTimeout(Duration timeout) { this.timeout = timeout; }
     }
 }

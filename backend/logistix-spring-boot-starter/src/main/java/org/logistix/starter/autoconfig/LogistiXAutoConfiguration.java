@@ -136,6 +136,21 @@ public class LogistiXAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public org.logistix.domain.ports.AIProvider logistixAiProvider(
+            LogistiXProperties properties,
+            org.springframework.beans.factory.ObjectProvider<org.springframework.ai.chat.model.ChatModel> chatModelProvider
+    ) {
+        if (properties.getAi().isEnabled() && "spring-ai".equalsIgnoreCase(properties.getAi().getProvider())) {
+            org.springframework.ai.chat.model.ChatModel chatModel = chatModelProvider.getIfAvailable();
+            if (chatModel != null) {
+                return new org.logistix.ai.dispatch.SpringAIDispatchAIProvider(chatModel, properties.getAi().getModel());
+            }
+        }
+        return new org.logistix.ai.dispatch.MockDispatchAIProvider("Mock-Dispatch-AI", !properties.getAi().isEnabled());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public DecisionAutoRegistrar logistixDecisionAutoRegistrar(
             LogistiXContext logistixContext,
             PipelineScanner pipelineScanner,

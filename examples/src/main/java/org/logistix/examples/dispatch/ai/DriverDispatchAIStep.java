@@ -1,5 +1,6 @@
 package org.logistix.examples.dispatch.ai;
 
+import org.logistix.ai.dispatch.DispatchAIAdvice;
 import org.logistix.domain.decision.DecisionContext;
 import org.logistix.domain.fact.Fact;
 import org.logistix.domain.ports.AIProvider;
@@ -13,10 +14,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 /**
- * Optional pipeline step providing AI/LLM contextual risk assessment, narrative reasoning,
- * and trade-off analysis for top candidates with graceful fallback.
+ * Optional pipeline step providing AI/LLM contextual risk assessment, structured advice,
+ * narrative reasoning, and trade-off analysis for top candidates with graceful fallback.
  */
 public class DriverDispatchAIStep implements AIStep {
 
@@ -55,6 +57,7 @@ public class DriverDispatchAIStep implements AIStep {
             List<DispatchCandidate> enrichedCandidates = new ArrayList<>();
             // Analyze top 3 candidates
             int countToAnalyze = Math.min(3, rankedCandidates.size());
+            DispatchAIAdvice primaryAdvice = null;
 
             for (int i = 0; i < rankedCandidates.size(); i++) {
                 DispatchCandidate candidate = rankedCandidates.get(i);
@@ -66,10 +69,24 @@ public class DriverDispatchAIStep implements AIStep {
                 }
             }
 
+            // Attempt structured inference for the top candidate
+            Optional<DispatchAIAdvice> adviceOpt = aiProvider.infer(context, DispatchAIAdvice.class);
+            if (adviceOpt.isPresent()) {
+                primaryAdvice = adviceOpt.get();
+            }
+
             Duration duration = Duration.between(start, Instant.now());
             DecisionContext updatedContext = context
                     .withFact(Fact.of("rankedCandidates", enrichedCandidates))
-                    .withFact(Fact.of("aiEnrichmentStatus", "SUCCESS"));
+                    .withFact(Fact.of("aiEnrichmentStatus", "SUCCESS"))
+                    .withFact(Fact.of("aiProviderName", aiProvider.getProviderName()));
+
+            if (primaryAdvice != null) {
+                updatedContext = updatedContext
+                        .withFact(Fact.of("aiAdvice", primaryAdvice))
+                        .withFact(Fact.of("aiAdvisoryConfidence", primaryAdvice.advisoryConfidence()))
+                        .withFact(Fact.of("aiRiskLevel", primaryAdvice.riskLevel().name()));
+            }
 
             return StepResult.success(
                     updatedContext,
@@ -84,7 +101,8 @@ public class DriverDispatchAIStep implements AIStep {
             Duration duration = Duration.between(start, Instant.now());
             DecisionContext updatedContext = context
                     .withFact(Fact.of("aiEnrichmentStatus", "FALLBACK_TRIGGERED"))
-                    .withFact(Fact.of("aiFallbackReason", e.getMessage()));
+                    .withFact(Fact.of("aiFallbackReason", e.getMessage()))
+                    .withFact(Fact.of("aiProviderName", aiProvider.getProviderName()));
 
             return StepResult.success(
                     updatedContext,
