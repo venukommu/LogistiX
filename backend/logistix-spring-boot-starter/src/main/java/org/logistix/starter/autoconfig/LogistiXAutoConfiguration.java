@@ -22,7 +22,6 @@ import org.logistix.engine.plugins.DecisionPlugin;
 import org.logistix.engine.plugins.PluginContext;
 import org.logistix.engine.plugins.PluginRegistry;
 import org.logistix.engine.registry.DecisionRegistry;
-import org.logistix.mcp.AuthorizationAuthorityRegistry;
 import org.logistix.starter.scanner.DecisionAutoRegistrar;
 import org.logistix.starter.scanner.PipelineScanner;
 import org.logistix.starter.scanner.PluginScanner;
@@ -45,7 +44,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Spring Boot AutoConfiguration for the LogistiX Framework with hardened security registries.
+ * Spring Boot AutoConfiguration for core LogistiX Framework.
+ * Completely decoupled from MCP and infrastructure-specific adapters.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(LogistiXProperties.class)
@@ -181,26 +181,12 @@ public class LogistiXAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public AuthorizationAuthorityRegistry logistixAuthorizationAuthorityRegistry(LogistiXProperties properties) {
-        AuthorizationAuthorityRegistry registry = AuthorizationAuthorityRegistry.empty();
-        List<String> configuredAuthorities = properties.getSecurity().getAuthorization().getAuthorities();
-        if (configuredAuthorities != null && !configuredAuthorities.isEmpty()) {
-            for (String auth : configuredAuthorities) {
-                registry.registerAuthority(auth);
-            }
-        } else {
-            registry.registerAuthority(properties.getSecurity().getAuthorization().getAuthorityId());
-        }
-        registry.freeze();
-        return registry;
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "logistix.security", name = "enabled", havingValue = "true", matchIfMissing = true)
     public TrustedApproverRegistry logistixTrustedApproverRegistry(LogistiXProperties properties) {
+        properties.getSecurity().validate();
+        TrustedApproverRegistry registry = TrustedApproverRegistry.empty();
         List<LogistiXProperties.ApproverSecurityProperties> approverProps = properties.getSecurity().getApprovers();
         if (approverProps != null && !approverProps.isEmpty()) {
-            TrustedApproverRegistry registry = TrustedApproverRegistry.empty();
             for (LogistiXProperties.ApproverSecurityProperties prop : approverProps) {
                 if (prop.isEnabled() && prop.getId() != null && !prop.getId().isBlank()) {
                     Set<ActionType> allowedTypes = new HashSet<>();
@@ -218,27 +204,30 @@ public class LogistiXAutoConfiguration {
                     registry.registerApprover(prop.getId(), allowedTypes);
                 }
             }
-            registry.freeze();
-            return registry;
         }
-        return TrustedApproverRegistry.withStandardLogisticsApprovers();
+        registry.freeze();
+        return registry;
     }
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "logistix.security", name = "enabled", havingValue = "true", matchIfMissing = true)
     public ActionAuthorizationIssuer logistixActionAuthorizationIssuer(LogistiXProperties properties) {
-        return new DefaultActionAuthorizationIssuer(properties.getSecurity().getAuthorization().getAuthorityId());
+        properties.getSecurity().validate();
+        return new DefaultActionAuthorizationIssuer(properties.getSecurity().getAuthorization().getResolvedAuthorityId());
     }
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "logistix.security", name = "enabled", havingValue = "true", matchIfMissing = true)
     public ActionApprovalIssuer logistixActionApprovalIssuer(
             TrustedApproverRegistry trustedApproverRegistry,
             LogistiXProperties properties
     ) {
+        properties.getSecurity().validate();
         return new DefaultActionApprovalIssuer(
                 trustedApproverRegistry,
-                properties.getSecurity().getAuthorization().getAuthorityId()
+                properties.getSecurity().getAuthorization().getResolvedAuthorityId()
         );
     }
 

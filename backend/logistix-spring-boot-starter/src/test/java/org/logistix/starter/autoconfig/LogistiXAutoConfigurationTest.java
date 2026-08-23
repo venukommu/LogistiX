@@ -7,9 +7,9 @@ import org.logistix.ai.dispatch.SpringAIDispatchAIProvider;
 import org.logistix.domain.action.ActionApprovalIssuer;
 import org.logistix.domain.action.ActionAuthorizationIssuer;
 import org.logistix.domain.action.ActionType;
+import org.logistix.domain.action.DefaultActionAuthorizationIssuer;
 import org.logistix.domain.action.TrustedApproverRegistry;
 import org.logistix.domain.ports.AIProvider;
-import org.logistix.mcp.AuthorizationAuthorityRegistry;
 import org.mockito.Mockito;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -43,32 +43,44 @@ class LogistiXAutoConfigurationTest {
     }
 
     @Test
-    @DisplayName("Should auto-configure frozen security registries and trusted issuers by default")
+    @DisplayName("Should auto-configure security registries and trusted issuers without requiring MCP")
     void testDefaultSecurityRegistriesAndIssuers() {
         contextRunner.run(context -> {
-            assertThat(context).hasSingleBean(AuthorizationAuthorityRegistry.class);
-            AuthorizationAuthorityRegistry authRegistry = context.getBean(AuthorizationAuthorityRegistry.class);
-            assertThat(authRegistry.isFrozen()).isTrue();
-            assertThat(authRegistry.isRegisteredAuthority("LogistiX-Governance-Authority")).isTrue();
-            assertThatThrownBy(() -> authRegistry.registerAuthority("rogue-authority"))
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("frozen and immutable");
-
             assertThat(context).hasSingleBean(TrustedApproverRegistry.class);
             TrustedApproverRegistry approverRegistry = context.getBean(TrustedApproverRegistry.class);
             assertThat(approverRegistry.isFrozen()).isTrue();
-            assertThat(approverRegistry.isAuthorizedApprover("SUPERVISOR-001")).isTrue();
+            // Default with no approvers is Option A: empty frozen registry
+            assertThat(approverRegistry.getRegisteredApproverIds()).isEmpty();
+            assertThat(approverRegistry.isAuthorizedApprover("SUPERVISOR-001")).isFalse();
+
             assertThatThrownBy(() -> approverRegistry.registerApprover("rogue-approver", Set.of(ActionType.ASSIGN_DRIVER)))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("frozen and immutable");
 
             assertThat(context).hasSingleBean(ActionAuthorizationIssuer.class);
             assertThat(context).hasSingleBean(ActionApprovalIssuer.class);
+
+            ActionAuthorizationIssuer issuer = context.getBean(ActionAuthorizationIssuer.class);
+            assertThat(issuer).isInstanceOf(DefaultActionAuthorizationIssuer.class);
+            assertThat(((DefaultActionAuthorizationIssuer) issuer).getIssuerAuthorityId())
+                    .isEqualTo("LogistiX-Governance-Authority");
         });
     }
 
     @Test
-    @DisplayName("Should auto-configure custom security authorities and approvers from properties")
+    @DisplayName("Should disable security beans when logistix.security.enabled=false")
+    void testSecurityDisabled() {
+        contextRunner
+                .withPropertyValues("logistix.security.enabled=false")
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(TrustedApproverRegistry.class);
+                    assertThat(context).doesNotHaveBean(ActionAuthorizationIssuer.class);
+                    assertThat(context).doesNotHaveBean(ActionApprovalIssuer.class);
+                });
+    }
+
+    @Test
+    @DisplayName("Should auto-configure custom security approvers from properties and freeze")
     void testCustomSecurityConfiguration() {
         contextRunner
                 .withPropertyValues(
@@ -79,17 +91,63 @@ class LogistiXAutoConfigurationTest {
                         "logistix.security.approvers[0].allowed-action-types[0]=CHANGE_DELIVERY_APPOINTMENT"
                 )
                 .run(context -> {
-                    AuthorizationAuthorityRegistry authRegistry = context.getBean(AuthorizationAuthorityRegistry.class);
-                    assertThat(authRegistry.isFrozen()).isTrue();
-                    assertThat(authRegistry.isRegisteredAuthority("Custom-Auth-Authority")).isTrue();
-                    assertThat(authRegistry.isRegisteredAuthority("Backup-Auth-Authority")).isTrue();
-                    assertThat(authRegistry.isRegisteredAuthority("LogistiX-Governance-Authority")).isFalse();
-
                     TrustedApproverRegistry approverRegistry = context.getBean(TrustedApproverRegistry.class);
                     assertThat(approverRegistry.isFrozen()).isTrue();
                     assertThat(approverRegistry.isAuthorizedApprover("CUSTOM-SUPERVISOR")).isTrue();
                     assertThat(approverRegistry.isAuthorizedApprover("CUSTOM-SUPERVISOR", ActionType.CHANGE_DELIVERY_APPOINTMENT)).isTrue();
                     assertThat(approverRegistry.isAuthorizedApprover("CUSTOM-SUPERVISOR", ActionType.ASSIGN_DRIVER)).isFalse();
+
+                    ActionAuthorizationIssuer issuer = context.getBean(ActionAuthorizationIssuer.class);
+                    assertThat(((DefaultActionAuthorizationIssuer) issuer).getIssuerAuthorityId())
+                            .isEqualTo("Custom-Auth-Authority");
+                });
+    }
+
+    @Test
+    @DisplayName("Should fail fast on startup when authority-id is missing from authorities list")
+    void testMissingAuthorityIdFromAuthoritiesFailsFast() {
+        contextRunner
+                .withPropertyValues(
+                        "logistix.security.authorization.authority-id=Unregistered-Authority",
+                        "logistix.security.authorization.authorities[0]=Registered-Authority-A"
+                )
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("authority-id ['Unregistered-Authority'] is not present in security.authorization.authorities");
+                });
+    }
+
+    @Test
+    @DisplayName("Should fail fast on startup when conflicting authority-id and issuer-id are configured")
+    void testConflictingAuthorityAndIssuerIdFailsFast() {
+        contextRunner
+                .withPropertyValues(
+                        "logistix.security.authorization.authority-id=Authority-A",
+                        "logistix.security.authorization.issuer-id=Authority-B"
+                )
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("Conflicting LogistiX security configuration");
+                });
+    }
+
+    @Test
+    @DisplayName("Should fail fast on startup when duplicate approver IDs are configured")
+    void testDuplicateApproverIdFailsFast() {
+        contextRunner
+                .withPropertyValues(
+                        "logistix.security.approvers[0].id=SUPERVISOR-A",
+                        "logistix.security.approvers[1].id=SUPERVISOR-A"
+                )
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("duplicate approver id ['SUPERVISOR-A']");
                 });
     }
 

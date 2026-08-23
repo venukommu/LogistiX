@@ -8,6 +8,8 @@
 
 > **"Trust configuration is established at startup, validated once, then immutable during runtime."**
 
+> **"MCP is an optional infrastructure adapter. The core Spring Boot starter does not require MCP."**
+
 In enterprise logistics operations (TMS, Fleet Management, ERP), an AI model, LLM agent, or heuristic algorithm must **never** be granted autonomous write access to enterprise tools.
 
 LogistiX enforces a strict, technology-neutral authorization boundary where intelligence producers can only generate unverified `ActionProposal` instances. Every proposal must pass deterministic policy, risk, and constraint evaluations before an immutable `AuthorizedAction` is minted by a trusted `ActionAuthorizationIssuer`.
@@ -46,6 +48,7 @@ LogistiX enforces a strict, technology-neutral authorization boundary where inte
                            │
                            ▼
                        MCP Adapter
+                      (logistix-mcp)
                            │
                            ▼
                      Tool Registry
@@ -57,24 +60,27 @@ LogistiX enforces a strict, technology-neutral authorization boundary where inte
 
 ---
 
-## 3. Trusted Issuer & Approver Configuration
+## 3. Security Configuration Lifecycle & Starter Decoupling
 
 ```
              application.yml
                     │
                     ▼
             LogistiX Properties
+          (LogistiXProperties)
                     │
                     ▼
          Security Configuration
                     │
             ┌───────┴────────┐
             ▼                ▼
-      Authority Registry  Approver Registry
+     Authority Registry   Approver Registry
+   (AuthorizationAuth)   (TrustedApprover)
             │                │
             └───────┬────────┘
                     ▼
                  VALIDATE
+       (fail fast on mismatch)
                     │
                     ▼
                   FREEZE
@@ -87,26 +93,26 @@ LogistiX enforces a strict, technology-neutral authorization boundary where inte
     Authorization Issuer   Approval Issuer
 ```
 
-1. **Startup Lifecycle**:
-   - Security properties are read from `application.yml` via `LogistiXProperties`.
-   - `AuthorizationAuthorityRegistry` and `TrustedApproverRegistry` are populated during application initialization.
-   - Registries are validated (rejecting blank or duplicate IDs) and frozen via `freeze()`.
-   - Any runtime attempt to mutate registries throws `IllegalStateException`.
-2. **Closed Issuance Boundary**:
+1. **Modular Decoupling**:
+   - `logistix-spring-boot-starter` provides core decision intelligence and governance without any mandatory dependency on MCP.
+   - `logistix-mcp` is an optional infrastructure adapter with its own dedicated auto-configuration (`LogistiXMcpAutoConfiguration`).
+2. **Canonical `authorityId` Identity**:
+   - `authorityId` is the single canonical authorization authority identity.
+   - Configured via `logistix.security.authorization.authority-id`.
+   - The startup lifecycle validates that the configured `authorityId` is registered in `authorities` and fails fast if missing or conflicting.
+3. **Explicit, Safe Approver Configuration (Option A)**:
+   - When no approvers are explicitly declared in `logistix.security.approvers`, the system provisions an empty, frozen `TrustedApproverRegistry` (rejecting all unconfigured human approvals).
+   - No implicit wildcard or default supervisor identities are silently created.
+4. **Closed Issuance Boundary**:
    - `AuthorizedAction` is an immutable `final class` with package-private construction restricted to trusted `ActionAuthorizationIssuer` implementations.
-   - Public convenience factories (`AuthorizedAction.of`, `AuthorizedAction.createForTesting`) are eliminated from production code.
-3. **Trusted Authorization Authority Verification**:
-   - `AuthorizationProvenance` records issuer authority metadata.
-   - `McpActionExecutor` validates provenance against the in-process `AuthorizationAuthorityRegistry`.
-4. **Tamper-Evident Integrity via Canonical SHA-256 Fingerprint**:
+5. **Tamper-Evident Integrity via Canonical SHA-256 Fingerprint**:
    - Every `AuthorizedAction` carries an immutable `authorizationFingerprint` computed deterministically over:
      `actionType`, `targetResource`, recursively canonicalized `parameters`, `policyApplied`, `issuerId`, `correlationId`, `idempotencyKey`, and `expiresAt`.
-   - Modifying any parameter (including nested collections) or swapping a target resource after authorization triggers a fingerprint mismatch and halts execution.
-5. **Exact-Boundary Expiration**:
+6. **Exact-Boundary Expiration**:
    - Authorizations possess an `expiresAt` window (default 5 minutes). At `now >= expiresAt`, the authorization is strictly treated as expired.
-6. **Atomic Idempotency Reservation**:
+7. **Atomic Idempotency Reservation**:
    - Concurrent submissions with the same idempotency key are atomically reserved, guaranteeing exactly one execution.
-7. **Immutable Frozen Tool Registry**:
+8. **Immutable Frozen Tool Registry**:
    - `ToolRegistry` enforces a strict lifecycle (`configure` $\to$ `freeze`), rejecting tool registration or modification during execution.
 
 ---
@@ -144,7 +150,44 @@ ActionExecutor Dispatches to MCP
 
 ---
 
-## 5. Reference Implementation vs Production Architecture
+## 5. Configuration Examples
+
+### Minimal Core Starter Configuration (MCP Decoupled)
+```yaml
+logistix:
+  security:
+    enabled: true
+    authorization:
+      authority-id: LogistiX-Governance-Authority
+      authorities:
+        - LogistiX-Governance-Authority
+        - LogistiX-Authority-Primary
+    approvers:
+      - id: SUPERVISOR-001
+        allowed-action-types:
+          - CHANGE_DELIVERY_APPOINTMENT
+          - ASSIGN_DRIVER
+        enabled: true
+```
+
+### With Optional MCP Adapter Enabled (`logistix-mcp`)
+```yaml
+logistix:
+  security:
+    enabled: true
+    authorization:
+      authority-id: LogistiX-Governance-Authority
+      authorities:
+        - LogistiX-Governance-Authority
+  mcp:
+    enabled: true
+    authorities:
+      - LogistiX-Governance-Authority
+```
+
+---
+
+## 6. Reference Implementation vs Production Architecture
 
 | Capability | LogistiX Reference Implementation | Future Production Deployment |
 | :--- | :--- | :--- |
